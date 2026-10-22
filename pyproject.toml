@@ -1,0 +1,5 @@
+# Tooling only for now: there is no package yet (see docs/handoff-brief.md).
+# The core will be `sh2_python`, requires-python ">=3.11" (PyPy must work).
+[tool.ruff]
+line-length = 100
+target-version = "py311"

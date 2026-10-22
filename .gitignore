@@ -1,0 +1,27 @@
+# Python and package builds
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments and tooling
+.venv/
+.venv-*/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Fetched manuals, measurements, test ROMs, source trees and referee builds;
+# scripts/fetch_references.py and scripts/build_referees.py fill these from
+# scripts/pinned_*.json. Never commit them: third-party documents, programs and
+# source trees.
+reference/
+
+# MAME oracle runs (scripts/mame_trace.py): logs, traces, cfg, snapshots, the
+# extracted cartridge. Never commit ROMs or traces.
+tests/mame_traces/
+*.trace
+error.log
