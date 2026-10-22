@@ -7,6 +7,8 @@ Read in this order.
 | [start-here.md](start-here.md) | The SH7604 and its modules; registers; the instruction set and its machine-readable sources; the pipeline; delay slots; exceptions and interrupts; the cache's address spaces; the bus as the board sees it; what the core does not own |
 | [timing.md](timing.md) | The state tables; IF/MA contention, load-use, the multiplier, branches, exceptions; cache, divider, external bus and DMA costs; the hardware measurements that exist and how they compare |
 | [undocumented-behavior.md](undocumented-behavior.md) | Items U1–U20 (delay-slot PC, not-taken `BT/S`, the "2.5 cut" interrupt bug, purge ordering, overrun fetches, DIVU overflow, ...), contradictions C1–C10 between sources |
+| [validation.md](validation.md) | Every oracle by tier with its pin, what it can decide, what ran here; what could not be found; the rung plan |
+| [mame-oracle.md](mame-oracle.md) | The verified MAME 0.285 recipe for tracing either 32X SH-2 with its on-chip accesses, what it showed (the boot ROM's BSC settings, FRT bumping, DIVU read one clock after start), and its traps |
 | [handoff-brief.md](handoff-brief.md) | The task for the session that builds the core: decisions, the bus contract, the harness, rungs, tooling, open decisions |
 
 ## Findings made while gathering (2026-10-21)
@@ -37,3 +39,8 @@ from any single document:
    chapter 2). None of these is hard to rule on.
 6. **MAME 0.285 crashes when tracing an SH-2 with its recompiler on**;
    `-nodrc` traces work (mame-oracle.md).
+7. **Real 32X code reads the divider one clock after starting it** (BC Racers,
+   in MAME's trace), so the DIVU's 39-state stall is visible to games; MAME
+   answers at once.
+8. **MAME 0.285 shows a black screen for the 32xspd benchmark**, so the one
+   hardware photograph of 32X throughput cannot be compared with MAME.
