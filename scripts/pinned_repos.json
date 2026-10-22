@@ -1,0 +1,151 @@
+[
+ {
+  "path": "reference/src/mame",
+  "url": "https://github.com/mamedev/mame",
+  "rev": "f379cd060ac3b2bd567ebbd0957aed059d6895ff",
+  "date": "2026-01-29T15:02:37Z",
+  "sparse": [
+   "/COPYING",
+   "/src/devices/cpu/sh/"
+  ],
+  "license": "GPL-2.0-or-later (MAME as a whole; individual files BSD-3-Clause where marked)",
+  "note": "tag mame0285, the release /usr/games/mame reports. sh2.cpp (interpreter + DRC front end), sh.cpp (instructions shared with SH-3/4), sh7604.cpp with sh7604_bus/sci/wdt: the on-die peripherals. No cache emulation: the data array mapping is commented out in sh7604.cpp. Emulator; detector for register state only (docs/validation.md)."
+ },
+ {
+  "path": "reference/src/ares",
+  "url": "https://github.com/ares-emulator/ares",
+  "rev": "9408cb43d4948fc3ea6e152a307a34348df3fe04",
+  "date": "2026-10-06T14:03:27Z",
+  "sparse": [
+   "/LICENSE",
+   "/ares/component/processor/sh2/"
+  ],
+  "license": "ISC",
+  "note": "SH2 interpreter + recompiler, sh7604/ (bus, cache, dma, interrupts, io, serial, timer). Cache refill reads the line in order 0,4,8,C and charges a flat 12 cycles (C4 in docs/undocumented-behavior.md). Emulator."
+ },
+ {
+  "path": "reference/src/picodrive",
+  "url": "https://github.com/irixxxx/picodrive",
+  "rev": "1008a98e494901321c1ecad4221892f682aecb89",
+  "date": "2026-10-21T17:19:48Z",
+  "sparse": [
+   "/COPYING",
+   "/cpu/sh2/",
+   "/pico/32x/sh2soc.c"
+  ],
+  "license": "PicoDrive licence (COPYING): non-commercial; cpu/sh2/mame/ derives from MAME's old SH-2",
+  "note": "irixxxx's fork, the maintained one (libretro builds from it; notaz/picodrive last moved 2025-04-03). cpu/sh2/mame/sh2.c is an old MAME interpreter, compiler.c the DRC; pico/32x/sh2soc.c the SH7604 peripherals as the 32X uses them. Emulator, speed-oriented."
+ },
+ {
+  "path": "reference/src/jgenesis",
+  "url": "https://github.com/jsgroth/jgenesis",
+  "rev": "d41e2d975771c78ee2efe80f8ec5768b87e3f7eb",
+  "date": "2026-10-20T19:31:19Z",
+  "sparse": [
+   "/LICENSE",
+   "/cpu/sh2-emu/"
+  ],
+  "license": "GPL-3.0",
+  "note": "Rust sh2-emu crate: CPU, cache, DMAC, DIVU, FRT, WDT, SCI. Its README: 'does not attempt to track timing. Almost all instructions take 1 cycle plus memory access delays'; issue #493 records the hardware-derived timing tweaks since. backend/s32x-core is NOT fetched (it carries SH-2 boot ROM binaries). Emulator."
+ },
+ {
+  "path": "reference/src/kronos",
+  "url": "https://github.com/FCare/Kronos",
+  "rev": "d451a55253e2e75bcef704ec8ade2085d298212c",
+  "date": "2026-07-18T07:07:59Z",
+  "sparse": [
+   "/yabause/COPYING",
+   "/yabause/src/core/sh2/",
+   "/yabause/src/sys/sh2/"
+  ],
+  "license": "GPL-2.0 (yabause/COPYING)",
+  "note": "Kronos (Yabause fork), default branch extui-align. Two interpreters (sh2_kronos, sh2_simple) and sys/sh2/sh2core.c. Emulator."
+ },
+ {
+  "path": "reference/src/yabause",
+  "url": "https://github.com/Yabause/yabause",
+  "rev": "7e38821dbac265490f115e163c523a939acda759",
+  "date": "2018-07-07T10:50:00Z",
+  "sparse": [
+   "/yabause/COPYING",
+   "/yabause/src/sh2cache.c",
+   "/yabause/src/sh2cache.h",
+   "/yabause/src/sh2core.c",
+   "/yabause/src/sh2core.h",
+   "/yabause/src/sh2d.c",
+   "/yabause/src/sh2int.c",
+   "/yabause/src/sh2int.h"
+  ],
+  "license": "GPL-2.0 (yabause/COPYING)",
+  "note": "Upstream Yabause, last commit 2018: sh2int.c interpreter, sh2cache.c cache model, sh2core.c on-chip modules. Historical; Kronos continues it. Emulator."
+ },
+ {
+  "path": "reference/src/ymir",
+  "url": "https://github.com/StrikerX3/Ymir",
+  "rev": "8cdf0a530ec1927f44bf3cd02c6ab51a586c4407",
+  "date": "2026-10-18T21:16:19Z",
+  "sparse": [
+   "/LICENSE",
+   "/docs/dev-notes/",
+   "/libs/ymir-core/include/ymir/hw/sh2/",
+   "/libs/ymir-core/src/ymir/hw/sh2/",
+   "/libs/ymir-core/src/ymir/sys/saturn.cpp",
+   "/tests/ymir-core-tests/src/hw/sh2/"
+  ],
+  "license": "GPL-3.0",
+  "note": "Saturn emulator with a full SH7604 (BSC, cache, DIVU, DMAC, FRT, INTC, SCI, UBC, WDT, power). tests/.../sh2_divu_testdata.inc and sh2_macwl_testdata.inc: DIVU and MAC.W/MAC.L vectors whose origin the repository does not state. saturn.cpp 735-756: timings that 'pass misctest' left commented out. Emulator; the same commit Dunkley's note inspected."
+ },
+ {
+  "path": "reference/src/Saturn_MiSTer",
+  "url": "https://github.com/MiSTer-devel/Saturn_MiSTer",
+  "rev": "9aa944985a96433983ffba27bdb520009fd9a8e8",
+  "date": "2026-10-19T10:11:32Z",
+  "sparse": [
+   "/rtl/SH/"
+  ],
+  "license": "none stated in the repository",
+  "note": "srg320's SystemVerilog SH-2 core (rtl/SH/core) and SH7604 peripherals (rtl/SH/SH7604: BSC, CACHE, DIVU, DMAC, FRT, INTC, MULT, SCI, UBC, WDT), tuned against celeriyacon's non-public Saturn test programs; 'SH opcodes.xlsx' is its opcode/stage table. An FPGA reimplementation, not a die trace: emulator tier. The same commit Dunkley's note inspected."
+ },
+ {
+  "path": "reference/src/S32X_MiSTer",
+  "url": "https://github.com/MiSTer-devel/S32X_MiSTer",
+  "rev": "3d4209c659512a8c0f43913b1fa54d3d550b2794",
+  "date": "2026-10-10T14:43:26Z",
+  "sparse": [
+   "/rtl/SH/"
+  ],
+  "license": "none stated in the repository",
+  "note": "The 32X copy of srg320's SH-2 RTL; it has diverged from the Saturn copy (CACHE.sv 20,952 vs 13,705 bytes). rtl/32X/ is NOT fetched: shbios.mif there is the 32X SH-2 boot ROM. Emulator tier."
+ },
+ {
+  "path": "reference/src/32XDK",
+  "url": "https://github.com/viciious/32XDK",
+  "rev": "7e92989ac22b77c1dd9e566a9184c0615ebffffb",
+  "date": "2026-08-29T17:45:22Z",
+  "sparse": [
+   "/bulletins/",
+   "/docs/"
+  ],
+  "license": "none stated (Sega technical bulletins; markdown transcriptions of the Hitachi and Sega manuals)",
+  "note": "32X Technical Bulletins #9, #10, #14, #27 (#27: SH-2 interrupt problems on the 32X), and docs/sh7604-hardware-manual.md, docs/sh1-sh2-cpu-core-architecture.md: text transcriptions, handy for grep; the PDFs in reference/docs are the citation."
+ },
+ {
+  "path": "reference/src/32XDK.wiki",
+  "url": "https://github.com/viciious/32XDK.wiki.git",
+  "rev": "ad611211d9a1e4c6d4aebec00f0db1a8d8d7111c",
+  "date": "2026-09-02T18:17:12+03:00",
+  "sparse": [],
+  "license": "none stated",
+  "note": "SH2-on-the-32X.md (bakemono's and Chilly Willy's hardware throughput measurements, Sega TB #32 internal I/O access cycles), Bugs-and-quirks.md (the SH-2 '2.5 cut' interrupt bug, FRT bumping, Tom Forsyth on multiply overlap). Research documentation."
+ },
+ {
+  "path": "reference/src/sst-sh4",
+  "url": "https://github.com/SingleStepTests/sh4",
+  "rev": "48975cb1a9569abb5a0cba587013ea54edf79100",
+  "date": "2026-06-14T01:48:21Z",
+  "sparse": [],
+  "optional": true,
+  "license": "none stated",
+  "note": "OPTIONAL (about 350 MB; --optional). SH-4 tests generated by Reicast's interpreter; no SH-2 corpus exists. One memory access per case, MACH/MACL excluded, no timing. Only the encodings the SH-2 shares are usable, as a weak detector of ALU and addressing semantics: emulator-derived, wrong CPU."
+ }
+]

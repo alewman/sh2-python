@@ -1,0 +1,98 @@
+[
+ {
+  "path": "reference/docs/sh7604.pdf",
+  "url": "https://antime.kapsi.fi/sega/files/sh7604.pdf",
+  "sha256": "262cfff2abec2fa0cef5c5475495d6a4da390eff107ed3a75575827467daab9f",
+  "size": 2211720,
+  "kind": "document",
+  "license": "Hitachi copyright; third-party host (antime's Sega documentation archive)",
+  "note": "SH7604 Hardware Manual, ADE-602-085C Rev. 4.0, 2001-09-19, 633 pages, text PDF. The chip: CPU summary, exceptions, INTC, UBC, BSC, cache, DMAC, DIVU, FRT, WDT, SCI, power-down. Cited as HM."
+ },
+ {
+  "path": "reference/docs/h12p0.pdf",
+  "url": "https://antime.kapsi.fi/sega/files/h12p0.pdf",
+  "sha256": "03364fae725c23980ae76d75f266f760844a6ce4e4ec54b7c40897b180be5d44",
+  "size": 1034304,
+  "kind": "document",
+  "license": "Hitachi copyright; third-party host",
+  "note": "SuperH RISC Engine SH-1/SH-2 Programming Manual, Hitachi America, 1996-09-03, 293 pages, text PDF. Instruction set, section 7 pipeline with every SH-2 multiplier contention figure. Cited as PM."
+ },
+ {
+  "path": "reference/docs/1995_SH1_SH2_Programming_Manual_3rd_Edition.pdf",
+  "url": "https://ftp.mirrorservice.org/sites/www.bitsavers.org/components/hitachi/superH/1995_SH1_SH2_Programming_Manual_3rd_Edition.pdf",
+  "sha256": "9e204ecf45a49bc6f4eeb04731a8336911fe68a716610944805257ceff7bf445",
+  "size": 11452188,
+  "kind": "document",
+  "license": "Hitachi copyright; bitsavers scan (the bitsavers.org host refuses curl; this is its UK mirror)",
+  "note": "SH-1/SH-2 Programming Manual 3rd Edition, ADE-602-063B, 1995, 298-page OCR'd scan. The earlier edition of PM; used to check that PM's numbers are not a 1996 change. Cited as PM95."
+ },
+ {
+  "path": "reference/docs/renesas-sh1-sh2-shdsp-software-manual.pdf",
+  "url": "https://www.renesas.com/en/document/mas/sh-1sh-2sh-dsp-software-manual",
+  "sha256": "ef8dc7aa6bb7bab8de0028b6e3eed5ef4454241e56ebb6fcafccb589e5e23584",
+  "size": 2659536,
+  "kind": "live-document",
+  "license": "Renesas copyright; free download from Renesas",
+  "note": "SH-1/SH-2/SH-DSP Software Manual, REJ09B0171-0500O Rev. 5.00, 2004-06-30, 531 pages, served by Renesas (the URL serves the current revision). Newest manufacturer text; adds the 4n+2 branch-target note; contradicts itself on TRAPA (C1). Cited as SWM."
+ },
+ {
+  "path": "reference/docs/dunkley-sh7604-cache-purge-note.pdf",
+  "url": "https://zenodo.org/records/23477988/files/sh7604_cache_purge_note.pdf?download=1",
+  "sha256": "9051ce1b8ae0870e6a3993926b290acc7472574582c5e8a98d303ae6492df6be",
+  "size": 362552,
+  "kind": "document",
+  "license": "CC-BY-4.0",
+  "note": "J.R. Dunkley (board research XeD), 'SH7604 cache purge ordering and write-buffer behaviour, measured on a CPS3 board', Zenodo 10.5281/zenodo.23477988, 2026-10-19. Hardware-captured on one CPS3 board with a stock SH7604-family part at 25 MHz: CCR purge ordering behind a posted store, store overlap, load-use, MA/IF, multiply issue vs result. Cited as DN."
+ },
+ {
+  "path": "reference/docs/dunkley-cps3-cache-bus-paper.pdf",
+  "url": "https://zenodo.org/api/records/23435894/files/Cache,%20Bus,%20Interrupt,%20Order%20and%20Slowdown.pdf/content",
+  "sha256": "8f4fc88357dbc59430fe2391b3a4062a1092153a84ab4aed776479e861019c3f",
+  "size": 965919,
+  "kind": "document",
+  "license": "CC-BY-4.0",
+  "note": "J.R. Dunkley, 'Cache, Bus, Interrupt, Order and Slowdown on a CPS3', Zenodo record 23435894, 2026-10-17: the main paper DN extracts from. Cited as DP."
+ },
+ {
+  "path": "reference/data/dunkley-cps3-data-and-code.zip",
+  "url": "https://zenodo.org/api/records/23435894/files/data-and-code.zip/content",
+  "sha256": "7f359b507a5badd9fc2f6b248b0866b350a42d8b056ee7bb09c8d959cd2e7691",
+  "size": 9469328,
+  "kind": "data",
+  "license": "CC-BY-4.0",
+  "note": "DP's companion: board/p2/lab_cpu.csv (8 FRT samples per CPU test; 1 tick = 8 clocks), lab_values.csv (the purge-order values), probe_build_info.json (the loop bodies and addresses), capture.bin. Hardware-captured; unzipped in place."
+ },
+ {
+  "path": "reference/roms/32xspd.zip",
+  "url": "https://github.com/user-attachments/files/21323962/32xspd.zip",
+  "sha256": "dde6b0a719342c0e45bd39c996d2958f35242c3e7f813b527a5e619acf95749e",
+  "size": 3519,
+  "kind": "test-rom",
+  "license": "none stated; homebrew, binary only (attached to jgenesis issue #493 by Genos3, 2025-07-19)",
+  "note": "32xspd.32x (8,092 bytes): the 32X memory-throughput benchmark ('busting 32X performance myths', sega-16 forum). No source; its loops are known from jgenesis #493 and the 32XDK wiki. Unzipped in place."
+ },
+ {
+  "path": "reference/docs/32xspd-hardware.jpg",
+  "url": "https://github.com/user-attachments/assets/f00f2cf9-7507-4b47-ad44-8ad6287a743d",
+  "sha256": "b347705d5d608a7f6c74d8b96c56750a5b19a1f9efaa18ef05675f3265ac77f6",
+  "size": 284703,
+  "kind": "document",
+  "license": "none stated (photograph attached to jgenesis issue #493)",
+  "note": "Photograph (Canon EOS 30D, EXIF 2019-05-26) of 32xspd running on a real 32X: cached read 31,840 KB/s, SDRAM read 16,304, ROM read 4,704, ... (validation.md). Hardware-captured, aggregate."
+ },
+ {
+  "path": "reference/archives/mednafen-1.32.1.tar.xz",
+  "url": "https://mednafen.github.io/releases/files/mednafen-1.32.1.tar.xz",
+  "sha256": "de7eb94ab66212ae7758376524368a8ab208234b33796625ca630547dbc83832",
+  "size": 3571236,
+  "kind": "source-archive",
+  "extract_to": "reference/src/mednafen-1.32.1",
+  "members": [
+   "mednafen/COPYING",
+   "mednafen/src/ss"
+  ],
+  "strip": 1,
+  "license": "GPL-2.0-or-later",
+  "note": "Mednafen 1.32.1 (2024-04-05), the newest release. src/ss/sh7095.inc is the Saturn SH-2 (Mednafen uses the part's earlier name SH7095), with an instruction-cache emulation mode; its own header says 'Overall timing is extremely approximate'. Only src/ss is unpacked; build_referees.py unpacks the whole tree to build the emulator."
+ }
+]
