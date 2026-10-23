@@ -10,22 +10,34 @@ the CPU (the same call that put the 2A03's sound and DMA into 6502-python).
 The boards, [sega32x-python](../sega32x-python) first and Saturn/ST-V later,
 own everything outside the package.
 
-**Status (2026-10-21): groundwork only, no core code.** The documents in
-[`docs/`](docs/README.md) gather what the build needs, each fact with its
-source and tier: the CPU, its five-stage pipeline and delay slots, the
-multiplier, the cache and its address spaces, every on-chip module, where the
-manuals contradict themselves and where emulators disagree with them, the
-oracles with what they can and cannot decide, a verified MAME recipe, and the
-brief for the session that builds the core
-([docs/handoff-brief.md](docs/handoff-brief.md)).
+**Status (2026-10-23): rungs 0, 1 and 2 pass; stopped for review before rung 3.**
+`src/sh2_python` is the SH7604: the SH-2 CPU (all 142 forms, delay slots,
+exceptions, interrupts) with the cache, BSC, INTC, DMAC, DIVU, FRT (FTOA), WDT,
+SCI and power-down as modules beside it (the UBC is a register map only), and the
+tooling (`debug.py`, `trace.py`, `console.py`, `python -m sh2_python`). Timing is
+the manuals' per-instruction minimum plus bus waits; the pipeline is rung 3's.
+What passed, with numbers, is in [docs/validation.md](docs/validation.md) ("What
+ran"): the decode table from PM appendix A against MAME's and jgenesis' decoders;
+16,600 generated cases agreed by MAME and jgenesis or ruled from the manuals; and
+129 M instructions of four 32X games replayed register-exact against MAME 0.285.
 
-The core will follow [z80-python](https://github.com/alewman/z80-python)'s
-shape: the constructor takes the bus as callables (no subclassing), `step()`
-returns clocks, no dependencies, CPython and PyPy, Python 3.11+. Like the GBA's
-ARM7TDMI it will make **one callback per external bus cycle**, carrying the
-address, the width, whether it is a fetch, a data access, a cache line fill or
-a DMA transfer, and the clock it starts on, so that the board owns external
-wait states and the arbitration between two SH-2s.
+```python
+from sh2_python import SH7604
+
+chip = SH7604(read, write)        # read(address, width, kind), write(address, width, value, kind)
+chip.reset()                      # PC and R15 from vectors 0 and 1, through read
+states = chip.step()              # one instruction or exception sequence
+```
+
+```sh
+python -m sh2_python ROM.bin                        # the minimal harness: run, print R0
+python -m sh2_python ROM.bin --console              # the line debugger
+pytest                                              # rungs 0-2 (fast); -m slow for all of it
+```
+
+The documents in [`docs/`](docs/README.md) gather what the build needs, each fact
+with its source and tier, and the brief it was built from
+([docs/handoff-brief.md](docs/handoff-brief.md)).
 
 There is **no hardware-captured test corpus for the SH-2** and no die-derived
 model. The strongest evidence is Hitachi's manuals, one board's worth of CPS3
@@ -62,7 +74,12 @@ romset and the cartridges come from the user's own collection.
 | --- | --- |
 | `scripts/fetch_references.py` | the pinned manuals, measurements, test ROM and source trees |
 | `scripts/build_referees.py` | checks MAME 0.285 and its `32x` romset; builds Mednafen 1.32.1 (Saturn only) |
-| `scripts/mame_trace.py` | MAME 0.285 per-instruction trace of either 32X SH-2 with its on-chip I/O accesses ([docs/mame-oracle.md](docs/mame-oracle.md)) |
+| `scripts/mame_trace.py` | MAME 0.285 per-instruction trace of either 32X SH-2 with its on-chip I/O accesses, and with `--bus` its external ones ([docs/mame-oracle.md](docs/mame-oracle.md)) |
+| `scripts/extract_pm_tables.py`, `scripts/gen_decode.py` | PM table A.50 from the PDF, and the decode table from it |
+| `scripts/build_jgenesis_harness.py` | the rung-1 referee harness around jgenesis' `sh2-emu` |
+| `validation/rung1/` | the rung-1 corpus: generator, MAME runner, gate, rulings |
+| `validation/rung2/replay.py` | the rung-2 replay of a MAME bus trace |
+| `benchmarks/harness_speed.py` | instructions per second on the minimal harness |
 
 ## Licence
 

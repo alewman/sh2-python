@@ -206,3 +206,74 @@ Two properties of this core's evidence decide how the rungs are built:
 Rungs 1 and 2 are detectors only; a pass there is "agrees with MAME and
 jgenesis", stated that way. Rung 4 is the only hardware-captured gate, and it
 covers timing and the cache, not instruction results.
+
+## What ran, rungs 0-2 (2026-10-23)
+
+### Rung 0 — passed
+
+- `tests/pm_a50.py` is PM table A.50 read from the PDF by
+  `scripts/extract_pm_tables.py` (two cells fixed by hand from the rendered page:
+  the `SHLL16`/`SHLR16` operand spacing and `MUL.L`'s wrapped "2 (to 4)").
+  `scripts/gen_decode.py` makes `src/sh2_python/_decode.py` from it: 142 forms,
+  each with handler, PM table 7.2 class and PM section; `tests/test_decode.py`
+  regenerates it and checks it. 53,752 encodings are defined, 11,784 undefined,
+  none twice.
+- Cross-checks against two other decoders over all 65,536 words
+  (`tests/test_disasm.py`): jgenesis' disassembler defines exactly the same
+  words, with the same mnemonics (it spells `MOV #imm,Rn` as `mov.b`); MAME 0.285's
+  `unidasm -arch sh2` text equals ours on every word both define, after six
+  spellings (`BTS`, `BFS`, `STS GBR`, `JMP R0`, `JSR R0`, `TAS R0`), and it names
+  2,760 words PM leaves undefined (its 0000/0100 groups decode on fewer bits).
+- Readability (`tests/test_readability.py`): every handler's docstring starts with
+  its form as PM prints it and cites its PM section; one module per family.
+- Unit tests for U1, U3, U7 (with the C11 ruling), U12-U14 and the manual-settled
+  rules (delay slots, illegal slots, interrupt acceptance, exception frames, the
+  cache's LRU, fill order, purges and arrays, BSC keys and port splits, FRT, WDT,
+  DIVU) in `tests/test_cpu.py` and `tests/test_modules.py`.
+
+### Rung 1 — passed (emulator-derived detector, manual rulings)
+
+`validation/rung1/`: 16,600 generated cases (seed 20261023; 100 per form, 2,000
+delayed branches with a random slot instruction, 200 illegal slots, 300
+undefined codes; SLEEP excluded) run on MAME 0.285 `-nodrc` (one case per frame
+through Lua, `mame_corpus.lua`) and on jgenesis `sh2-emu` @ d41e2d97
+(`validation/jgenesis_harness`). Both landed with equal registers and memory on
+15,949 cases; `gate.py` sorts the other 651 into five rulings
+(`overrides.json`, each with its HM/PM citation): undefined code 300 and
+illegal slots 200 (manual; the emulators run them), TRAPA's saved PC 100
+(MAME = HM 4.5.2; jgenesis pushes the address + 4), MAC.L with S = 1 45 (manual,
+C11), DIV1 Rn,Rn 6 (MAME = PM's code). The core matches all 16,600:
+CPython 3.14 69 s, PyPy 3.11 20 s (`pytest -m slow tests/test_rung1.py`; one
+case in 25 runs in the normal suite).
+
+### Rung 2 — passed (emulator detector): 129 M master instructions register-exact
+
+`scripts/mame_trace.py CART --only master --bus --frames 120` (MAME 0.285,
+`-nodrc`, cartridges from `/data/emu/roms/sega32x`, the `32x` set from the local
+MAME romset), replayed by `validation/rung2/replay.py` on PyPy; registers compared
+after every instruction, every byte the core writes compared with MAME's:
+
+| Cartridge | Instructions | Interrupts injected | Attributed to MAME | First difference |
+| --- | ---: | ---: | --- | --- |
+| BC Racers (USA) | 30,164,032 | 25,200 | 58 `mame-interrupt-after-ldc` (C12) | none |
+| Doom (Japan, USA) | 34,555,701 | 80 | 0 | none |
+| Knuckles' Chaotix (Japan, USA) | 32,543,515 | 61 | 0 | none |
+| Virtua Racing Deluxe (USA) | 31,791,810 | 0 | 0 | none |
+
+The first MAME-attributed event in BC Racers is at instruction 5,292,129 (an
+interrupt MAME accepts right after `LDS R1,MACL`, which HM 4.6.2 forbids); the
+replay takes it at MAME's boundary and continues, and there is no other
+difference in the four runs. What the replay substitutes (the module docstring
+says why): MAME's values for time-dependent on-chip registers (none read in these
+runs differed from the core's), MAME's DMA writes (Knuckles: 1,387 instructions
+during which MAME's DMAC wrote memory), and the cache, held off by default since
+MAME has none. With `--cache` and the boot ROM and cartridge preloaded
+(`--seed`), see "the cache on" below. The traces themselves are not committed
+(about 5 GB each); `tests/test_rung2.py -m slow` replays any found in
+`tests/mame_traces`.
+
+### Speed (the minimal harness, `benchmarks/harness_speed.py`)
+
+On this shared, heavily loaded machine (load average ~70 on 32 cores), best of
+three: CPython 3.14.4 610,000 instructions/s, PyPy 3.11 (7.3.23) 2,380,000
+instructions/s with the cache off and 1,330,000 with it on.

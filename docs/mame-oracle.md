@@ -110,3 +110,46 @@ values are the boot ROM's, whatever MAME does with them):
    machine), so one emulated second of one SH-2 is 2–4 minutes and 2 GB. Keep runs
    short; trace a window with the debugger's `trace` on/off commands when a
    later rung needs a late part of a game.
+
+## Bus traces for rung 2 (2026-10-23)
+
+`scripts/mame_trace.py CART --only master --bus --frames 120` adds two watchpoints
+over the external space as MAME's SH-2 masks it (`wpset 0,8000000,r` and `,w`),
+each logging `R|W address size data`, and stops from Lua after the given number of
+frames (`-seconds_to_run` takes whole seconds only; it stays as a backstop). With
+them every instruction's group in the log is complete: its fetch (MAME fetches
+one word, at execution: `R pc 10 opcode`), its data reads and writes, and after
+an instruction where MAME took an interrupt, the two pushes and the vector read.
+DMA transfers by that SH-2's DMAC appear as further `R`/`W` lines (MAME runs
+them on timers between instructions). The slave's and the 68000's writes to
+shared memory do not appear in the master's log; the master's later reads of
+that memory do. A bus trace is about 117 bytes per instruction.
+
+## The rung-1 corpus on MAME: no debugger needed (2026-10-23)
+
+`validation/rung1/mame_corpus.lua` runs one generated case per frame on the
+master SH-2 through Lua's `state` and address-space API only (no `-debug`):
+at each frame end it reads the previous case's registers and memory and writes
+the next case's. Two things make that safe: the slave is parked on a
+branch-to-itself with SR.I = 15, and the master's interrupt sources are masked
+at the 32X (`H'20004000` = 0) and the INTC (IPRA = IPRB = 0) with the DMAC
+stopped, so a case may lower SR.I; and the PC is written through `CURPC`, whose
+`state_import` clears MAME's pending delay slot (the landing loop's `BRA $` would
+otherwise redirect the next case). The state has two entries named `PC`; use
+`CURPC`. About 18 ms per case on an idle machine (16,600 cases in 6 shards: a few
+minutes).
+
+## What MAME's interpreter does that the manuals do not (rung 1)
+
+Found by the corpus (validation/rung1/overrides.json; detector findings, the
+manual rules):
+
+- Its decode is looser than PM appendix A: the 0000 and 0100 groups switch on
+  fewer opcode bits (`H'004A` runs as `STS MACH,R0`), 2,760 words its
+  disassembler names are undefined in PM (tests/test_disasm.py), and it runs
+  `H'0909` as a NOP (so does jgenesis).
+- No illegal slot exception: a branch or undefined code in a delay slot runs.
+- `MAC.L` with S = 1 transcribes PM 6.29's code (C11), and `DIV1 Rn,Rn` PM 6.19's.
+- No address errors: none of `sh2.cpp`'s `read_*`/`write_*` helpers checks
+  alignment or the space rules of HM table 4.6 (the corpus keeps its addresses
+  aligned, so this is read from the source, not measured).
