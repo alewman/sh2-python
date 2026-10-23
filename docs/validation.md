@@ -272,6 +272,14 @@ MAME has none. With `--cache` and the boot ROM and cartridge preloaded
 (about 5 GB each); `tests/test_rung2.py -m slow` replays any found in
 `tests/mame_traces`.
 
+**The cache on.** `--cache` with the master boot ROM (`32x_m_bios.bin` from the
+local romset, read at run time, never copied) and the cartridge preloaded:
+BC Racers and Doom replay to the end with the same results (the 58 C12 events,
+nothing else), so in these runs no cached read returned a value MAME's uncached
+read did not. That is not evidence about the cache's correctness (rungs 4 and 5);
+it says these games keep shared memory coherent as the replay host sees it (the
+slave's writes reach the host only when the master reads them).
+
 ### Speed (the minimal harness, `benchmarks/harness_speed.py`)
 
 On this shared, heavily loaded machine (load average ~70 on 32 cores), best of
