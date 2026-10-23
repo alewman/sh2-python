@@ -220,6 +220,12 @@ schema with `kind` and `width`), `console.py`, `py.typed`, and
 Each has a recommendation; nothing is built that depends on them before the
 user answers, except where "proceed with" says so.
 
+**Decided by Aubrey 2026-10-23:** 1 `SH7604`; 2 misses as `FILL` cycles on the
+callbacks, hits only on the optional `observe` hook; 9 the rung-1 corpus from
+MAME (`-nodrc`) + jgenesis agreement, labelled emulator-derived. The first build
+runs rungs 0-2 and stops for review. The rest still take the recommendation
+until answered.
+
 1. **Chip class name.** `SH7604` (the chip, with `chip.cpu`, `chip.cache`,
    `chip.dmac`, ...) or `SH2` (the CPU name everyone uses). *Recommend:*
    `SH7604`, with `SH2` left free for a future bare-CPU core (SH7032-style
