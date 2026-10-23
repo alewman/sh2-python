@@ -26,6 +26,15 @@ The rules it encodes, with their sources:
   cache-through area, the associative purge space, the address array, the data array,
   and the on-chip modules at H'FFFFFE00-H'FFFFFFFF. External cycles go to the board's
   callbacks through the BSC, split into port-width cycles (HM 7.4.1).
+- **The write buffer** (HM 7.11.2: "the bus state controller has one level of write
+  buffer"). A CPU write to external memory is taken by the buffer as soon as it is
+  empty and the CPU goes on one state later, while the BSC makes the write's cycles;
+  a second write waits until the first's cycles end, and every external read (a
+  cache-through read, a line fill, a fetch that misses, a DMA read) waits for them too
+  ("During reads, the CPU always has to wait"). Cache hits and on-chip module accesses
+  do not wait. A CCR write that arrives while a write is buffered takes effect when
+  that write's cycles end, and cache hits use the old lines meanwhile (U9: DN's
+  hardware values; C20). DMA writes are not buffered here (rung 5).
 - **Address errors** (HM table 4.6): a misaligned word or longword access, an odd
   instruction address, a fetch from on-chip module space, a byte access to
   H'FFFFFF00-, a longword access to H'FFFFFE00-H'FFFFFEFF. The faulting access is not
@@ -272,6 +281,8 @@ class CoreMixin:
     def _read_fetch(self, address: int) -> int:
         space = address >> 29
         if space == 0:
+            if self._ccr_at and self.clock >= self._ccr_at:
+                self._settle_ccr()
             if self.cache.enabled:
                 return self._cache_read(address, 32, FETCH)
             if self.observe is not None:
@@ -325,6 +336,8 @@ class CoreMixin:
             self._ma_next()  # this access is the instruction's next MA (pipeline.py)
         space = address >> 29
         if space == 0:
+            if self._ccr_at and self.clock >= self._ccr_at:
+                self._settle_ccr()
             if self.cache.enabled:
                 return self._cache_read(address, width, DATA)
             if self.observe is not None:
@@ -358,6 +371,8 @@ class CoreMixin:
         if space == 0:
             if self.observe is not None:
                 self.observe(address, width, WRITE)
+            if self._ccr_at and self.clock >= self._ccr_at:
+                self._settle_ccr()
             if self.cache.enabled:
                 self.cache.write_hit(address, width, value)  # write-through (HM 8.4.2)
             self._bus_write(address, width, value, THROUGH if not self.cache.enabled else DATA)
@@ -389,6 +404,18 @@ class CoreMixin:
             return cache.get((way << 10) | (entry << 4) | (address & 15), width)
         if self.observe is not None:
             self.observe(address, width, kind)
+        if self.clock < self._wb_end:
+            # A miss reads the bus, so it waits for a buffered write first (HM 7.11.2),
+            # and a CCR write queued behind that write lands before the fill (U9).
+            self.clock = self._wb_end
+            if self._ccr_at:
+                self._settle_ccr()
+                if not cache.enabled:
+                    return self._bus_read(address, width, kind | THROUGH)
+                way = cache.lookup(address)
+                if way >= 0:  # not purged after all: the CCR write kept the cache
+                    cache.touch(entry, way)
+                    return cache.get((way << 10) | (entry << 4) | (address & 15), width)
         if cache.ccr & (CCR_ID if kind & FETCH else CCR_OD):
             # ID/OD: "the missed address data is read and directly transferred to the
             # CPU" without replacing (HM 8.4.5).
@@ -408,7 +435,14 @@ class CoreMixin:
     # -- the external bus (through the BSC) -------------------------------------------
 
     def _bus_read(self, address: int, width: int, kind: int) -> int:
-        """One CPU or DMAC read on the external bus, split into port-width cycles."""
+        """One CPU or DMAC read on the external bus, split into port-width cycles.
+
+        It waits for a buffered write's cycles to end (HM 7.11.2: the bus is the
+        write's; "During reads, the CPU always has to wait for the end of the
+        operation").
+        """
+        if self.clock < self._wb_end:
+            self.clock = self._wb_end
         address &= 0x1FFFFFFF
         area = (address >> 25) & 3
         port = self._ports[area]
@@ -429,6 +463,30 @@ class CoreMixin:
         return value
 
     def _bus_write(self, address: int, width: int, value: int, kind: int) -> None:
+        """One CPU write, through the BSC's one-level write buffer (HM 7.11.2).
+
+        The buffer takes the write once the previous one's cycles have ended; "the CPU
+        is notified that the write is completed without waiting for the actual writing
+        ... to end", so the access (its MA) lasts until the buffer takes it plus one
+        state, and the BSC makes the write's cycles from that state on (the callbacks
+        see ``chip.clock`` at each cycle's start). ``_wb_end`` is where they end.
+        """
+        if self.clock < self._wb_end:
+            self.clock = self._wb_end  # the buffer is full: wait for its write to end
+            if self._ccr_at:
+                self._settle_ccr()
+        taken = self.clock
+        self._write_cycles(address, width, value, kind)
+        self._wb_end = self.clock
+        self.clock = taken + 1
+
+    def _settle_ccr(self) -> None:
+        """The CCR write that waited behind a buffered write takes effect (U9, C20)."""
+        self._ccr_at = 0
+        self.cache.write_ccr(self._ccr_value)
+
+    def _write_cycles(self, address: int, width: int, value: int, kind: int) -> None:
+        """The port-width write cycles of one access, back to back from ``chip.clock``."""
         address &= 0x1FFFFFFF
         area = (address >> 25) & 3
         port = self._ports[area]
@@ -499,8 +557,12 @@ class CoreMixin:
     def _dma_write(self, address: int, width: int, value: int, kind: int) -> None:
         space = address >> 29
         if space in (0, 1):
-            # No snooping: DMA writes do not update the cache (HM 7.11.2, 8.5.2).
-            self._bus_write(address, width, value, kind)
+            # No snooping: DMA writes do not update the cache (HM 7.11.2, 8.5.2). Not
+            # buffered here: the DMAC's cycles hold the bus until they end (rung 5).
+            if self.clock < self._wb_end:
+                self.clock = self._wb_end
+            self._write_cycles(address, width, value, kind)
+            self._wb_end = self.clock
         elif space == 7 and address >= 0xFFFFFE00:
             module = self._onchip[address - 0xFFFFFE00]
             if module is not None:

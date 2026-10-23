@@ -247,6 +247,12 @@ class PipelineMixin:
         # The two most recently fetched longwords (line address, value).
         self._fl0 = self._fl1 = -1
         self._fv0 = self._fv1 = 0
+        # The BSC's write buffer (HM 7.11.2; _core.py ``_bus_write``): the state at
+        # which the buffered write's external cycles end, and a CCR write waiting
+        # behind it (U9: its state, or 0, and its value).
+        self._wb_end = 0
+        self._ccr_at = 0
+        self._ccr_value = 0
         self._pipeline_restart()
 
     def _pipeline_restart(self) -> None:
@@ -486,7 +492,8 @@ class PipelineMixin:
         return (
             base, self._p_start, self._p_next_ex, self._p_ex, self._p_fetch_pc,
             self._p_fetch_line, self._p_mm_end, self._p_lu_dest, self._p_lu_slot,
-            self._fl0, self._fv0, self._fl1, self._fv1, *ring,
+            self._fl0, self._fv0, self._fl1, self._fv1,
+            self._wb_end, self._ccr_at, self._ccr_value, *ring,
         )  # fmt: skip
 
     def _load_pipeline_state(self, values: tuple[int, ...]) -> None:
@@ -494,9 +501,10 @@ class PipelineMixin:
             base, self._p_start, self._p_next_ex, self._p_ex, self._p_fetch_pc,
             self._p_fetch_line, self._p_mm_end, self._p_lu_dest, self._p_lu_slot,
             self._fl0, self._fv0, self._fl1, self._fv1,
-        ) = values[:13]  # fmt: skip
+            self._wb_end, self._ccr_at, self._ccr_value,
+        ) = values[:16]  # fmt: skip
         self._p_slot = base
-        ring = values[13:]
+        ring = values[16:]
         for i in range(RING):
             self._p_if[i], self._p_ma[i], self._p_lu[i] = -1, 0, 0
         for k in range(16):

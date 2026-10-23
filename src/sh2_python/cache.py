@@ -73,6 +73,7 @@ class Cache(Module):
     def reset(self) -> None:
         # HM 8.4.6: "CCR's CE bit is cleared to 0 by a power-on reset or manual reset";
         # CCR's other bits too (table 8.1, initial value H'00). Contents are kept.
+        self.chip._ccr_at = 0
         self.write_ccr(0)
 
     # -- CCR -------------------------------------------------------------------
@@ -86,10 +87,32 @@ class Cache(Module):
         self.enabled = bool(self.ccr & CCR_CE)
 
     def read8(self, address: int) -> int:
+        chip = self.chip
+        if chip._ccr_at and chip.clock >= chip._ccr_at:
+            chip._settle_ccr()
         return self.ccr if address == 0xFFFFFE92 else 0
 
     def write8(self, address: int, value: int) -> None:
-        if address == 0xFFFFFE92:
+        """A CPU's CCR write: it waits behind a buffered external write (U9).
+
+        DN (hardware, a CPS3; the judge for purge ordering): a cache-through store, a
+        CCR purge, then a cached read returns the line from before the purge, and the
+        eight values of DN's sequence fit "the CCR write waits behind the pending store
+        while hits can still use the old line". HM 7.11.2 says on-chip module accesses
+        do not wait for a buffered write (C20). So a CCR write made while the BSC's
+        write buffer holds a write is kept, and lands when that write's cycles end
+        (the core's ``_settle_ccr``); the CPU and its cache hits go on. One still
+        waiting when another arrives lands first.
+        """
+        if address != 0xFFFFFE92:
+            return
+        chip = self.chip
+        if chip._ccr_at:
+            chip._settle_ccr()
+        if chip._wb_end > chip.clock:
+            chip._ccr_at = chip._wb_end
+            chip._ccr_value = value
+        else:
             self.write_ccr(value)
 
     def purge_all(self) -> None:
