@@ -226,6 +226,14 @@ MAME (`-nodrc`) + jgenesis agreement, labelled emulator-derived. The first build
 runs rungs 0-2 and stops for review. The rest still take the recommendation
 until answered.
 
+**Decided by Aubrey 2026-10-23, after the rungs 0-2 review** (questions from
+that build's report): DIVU maps only `H'FFFFFF00-1F`, as MAME (no `+20`
+mirror) until a 32X game shows otherwise; the harness keeps its `wait` on top
+of the BSC's 2-state minimum cycle, since rung 3's scheduler replaces it; the
+unused Rust toolchain in `reference/build/rust` was deleted; the slave SH-2
+trace waits for rung 6 in sega32x-python; GitHub stays local until rung 3
+passes, then public (11 above). Rung 3 is next.
+
 1. **Chip class name.** `SH7604` (the chip, with `chip.cpu`, `chip.cache`,
    `chip.dmac`, ...) or `SH2` (the CPU name everyone uses). *Recommend:*
    `SH7604`, with `SH2` left free for a future bare-CPU core (SH7032-style
