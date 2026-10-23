@@ -1,0 +1,11 @@
+# The rung-1 referee harness around jgenesis' sh2-emu crate (validation/rung1/README.md).
+# scripts/build_jgenesis_harness.py copies this crate into reference/build/jgenesis-sh2,
+# beside a copy of sh2-emu and the two jgenesis common crates, and builds it there.
+[package]
+name = "sh2-jgenesis-harness"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+sh2-emu = { path = "../cpu/sh2-emu" }

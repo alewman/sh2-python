@@ -1,0 +1,35 @@
+{
+ "about": "Rung 1 rulings: every class of case where MAME 0.285 (-nodrc) and jgenesis sh2-emu (d41e2d97) disagree, or both fail to land, with the manual's answer. 'ruling' names whose result the core must equal ('mame' or 'jgenesis'), or 'manual' when neither referee does what the manual says; then the core's result is recorded and the cited tests check the manual's rule on constructed cases. Classes are assigned by validation/rung1/gate.py's classify(). Tier: emulator-derived corpus, manual-tier rulings (docs/validation.md).",
+ "rules": {
+  "trapa-saved-pc": {
+   "ruling": "mame",
+   "what": "TRAPA #imm pushes the address of the instruction after TRAPA. jgenesis pushes the TRAPA's address + 4.",
+   "citation": "HM 4.5.2: 'The PC value saved is the start address of the instruction to be executed after the TRAPA instruction.' PM 6.67's code pushes PC - 2 with PM's PC = address + 4.",
+   "tests": ["tests/test_cpu.py::test_trapa_pushes_sr_then_the_next_address_and_jumps"]
+  },
+  "div1-same-register": {
+   "ruling": "mame",
+   "what": "DIV1 Rn,Rn: PM's code shifts R[n] in place before it reads R[m], so the divisor is the shifted value. MAME transcribes the code; jgenesis reads the divisor before the shift.",
+   "citation": "PM 6.19, the DIV1 code: 'R[n]<<=1; R[n]|=(unsigned long)T; ... R[n]-=R[m];'.",
+   "tests": []
+  },
+  "mac-l-saturation": {
+   "ruling": "manual",
+   "what": "MAC.L with S = 1. MAME transcribes PM's code (adds MACH's low 16 bits unsigned, saturates the negative side to H'00008000:00000000); jgenesis clamps the full 64-bit sum to 48 bits. PM's prose: 'only the lower 48 bits of the MACL registers are enabled and the result is limited to a range of H'FFFF800000000000 (minimum) to H'00007FFFFFFFFFFF (maximum)'. The core takes MAC's low 48 bits sign-extended, adds, clamps to 48 bits and sign-extends (C11).",
+   "citation": "PM 6.29 (prose over code: the code's negative bound has the sign bits clear, contradicting the prose's stated range).",
+   "tests": ["tests/test_cpu.py::test_u7_mac_l_saturates_at_48_bits"]
+  },
+  "slot-illegal": {
+   "ruling": "manual",
+   "what": "A PC-changing instruction or undefined code in a delay slot. Neither referee raises the illegal slot exception (vector 6) the manual describes; both run the slot instruction (or decode the code loosely). They sometimes agree (a not-taken BT or BF in a slot); the manual still rules those cases.",
+   "citation": "HM 4.5.3 and table 4.9: illegal slot exception, saving 'the jump address of the delayed branch instruction'.",
+   "tests": ["tests/test_cpu.py::test_u3_slot_illegal_saves_the_branch_target", "tests/test_cpu.py::test_undefined_code_in_a_slot_is_a_slot_illegal"]
+  },
+  "undefined-code": {
+   "ruling": "manual",
+   "what": "An encoding PM appendix A does not define, outside a slot. MAME's interpreter ignores some opcode bits (its 0000 and 0100 groups decode on fewer bits, so e.g. H'004A runs as STS MACH,R0) and runs other codes as instructions; jgenesis likewise for some codes; both run H'0909 as a NOP. The manual: the general illegal instruction exception, vector 4, saving the code's own address, whether or not the referees agree.",
+   "citation": "HM 4.5.4; PM 6.1 note 2 and appendix A (the defined codes, tests/pm_a50.py).",
+   "tests": ["tests/test_cpu.py::test_general_illegal_saves_the_undefined_codes_address", "tests/test_decode.py::test_every_encoding_decodes_to_at_most_one_form"]
+  }
+ }
+}
