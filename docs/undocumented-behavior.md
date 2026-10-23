@@ -1,7 +1,7 @@
 # Undocumented behaviour, open items, and where sources contradict
 
-Items **U1–U20** are behaviours the manuals leave unsaid, ambiguous, or say
-only in passing, that a core must still decide. **C1–C10** are places where
+Items **U1–U21** are behaviours the manuals leave unsaid, ambiguous, or say
+only in passing, that a core must still decide. **C1–C19** are places where
 sources contradict each other. Each says what is known, from which tier, and
 what the build should do; "open" means nothing above emulator tier settles it.
 Source names as in [start-here.md](start-here.md).
@@ -133,7 +133,17 @@ cache area those fetches can miss and fill lines; in cache-through space they
 are bus cycles the board sees. MAME fetches only what executes
 (`sh2.cpp` `execute_run`); the other emulators were not checked. **Build**: make them,
 per PM; it changes cache contents and bus timing, and the 32xspd and DN loops
-can only be matched with them (rung 4).
+can only be matched with them (rung 4). **Built at rung 3** (decided by Aubrey: always
+on): the scheduler places every fetch PM's figures draw, discarded ones included —
+taken `BT`/`BF` (two, figure 7.78), taken `BT/S`/`BF/S` (one after the slot, figure
+7.80; C13), TRAPA and illegal instructions (two, figures 7.93, 7.97; U21), interrupts
+and address errors (the replaced instruction's and the next, figures 7.95, 7.96).
+Each is a `FETCH` cycle on the bus (or a line fill in the cache area) when it opens a
+new longword; tests/test_pipeline.py `test_overrun_fetches_reach_the_bus`,
+`test_overrun_fetch_fills_a_cache_line`. The pipeline also fetches two instructions
+ahead of execution, as figure 7.1 draws: a store to the next two instructions'
+addresses does not change what runs (the hardware's behaviour, if PM's pipeline is
+right; MAME executes the new code).
 
 ## U12 — DIVU overflow results
 
@@ -221,6 +231,15 @@ so that software depending on them shows up.
 HM Rev. 4.0 (2001) is the newest SH7604 manual; it describes no revisions. The
 "2.5 cut" (U5) implies at least one earlier silicon revision with a bug. No
 document lists revision differences. **Open.**
+
+## U21 — Which fetches the illegal instruction sequences make
+
+PM figure 7.97 draws the next instruction's IF and, in parentheses, the third's, and
+says "Whether there is an IF only in the next instruction or in the one after that as
+well depends on the instruction that was to be executed." Undefined code has no
+"instruction that was to be executed". **Build**: both, as TRAPA (figure 7.93, the
+same nine stages); for a slot illegal, the branch target's fetch (already made in the
+slot's ID) and the one after it. Choice, manual-silent; it changes one overrun fetch.
 
 ## Contradictions
 
@@ -325,3 +344,88 @@ the instruction (`pc -= 2`) instead of stopping the CPU, so a trace shows SLEEP
 repeated until the interrupt. **Build**: HM. The rung-2 replay counts these as
 MAME's (`mame-interrupt-after-ldc`, `mame-sleep`) and takes MAME's interrupt at
 MAME's boundary so the comparison can continue.
+
+### C13 — Does a taken delayed branch fetch the instruction after its slot?
+
+PM figure 7.80 (`BT/S`/`BF/S` taken) draws the instruction after the slot fetched in
+the branch's EX slot and discarded; figure 7.82 (`BRA`, `BRAF`, `BSR`, `BSRF`, `JMP`,
+`JSR`, `RTS`) draws no fetch there, the target's IF in the next slot. The two are the
+same kind of branch once taken. The notes under figures 7.79 and 7.81 speak of
+overrun fetches for the conditional branches only. **Build**: each figure as drawn —
+a conditional branch fetches on before its condition redirects the stream, an
+unconditional one does not. It matters only when the branch's EX slot holds an MA
+(the extra fetch splits it) or the fetch is slow or opens a new cache line.
+tests/test_pipeline.py figures 7.80, 7.82.
+
+### C14 — Figures 7.4-7.6 draw a bus fetch for every instruction
+
+PM figures 7.5 and 7.6 give each consecutive instruction its own bus fetch (7.5:
+three 2-cycle IFs in a row; 7.6: the IFs of instructions 4 and 5 both split their
+slots). On the SH-2 a fetch is a longword, so of two consecutive instructions one is
+an `if` with no bus cycle (PM 7.4.2, figure 7.7; figure 7.8 is the SH-2 version of
+figure 7.6). Figure 7.4 draws two instructions only; the third one's fetch falls in
+the slot of the first one's three-cycle MA and splits it (PM 7.4.1). **Build**: the
+SH-2's longword rule. The tests reproduce the figures with the cycle counts they
+state and SH-2 fetches: 7.4 with the split (its second instruction's EX one column
+later), 7.5 with the third fetch an `if` (6 states from the first EX to the fourth,
+not 7), 7.6 with slot E unsplit.
+
+### C15 — Where a one-state stage sits in a longer slot
+
+Most figures draw a one-state stage at the start of a slot that an extended MA makes
+longer (`ID EX — — MA` in figures 7.35, 7.38, 7.40, 7.64-7.66, 7.68), as figure 7.4
+draws `EX — —` in its three-cycle slot ("the instruction with the longest stage
+stalls others", PM 7.2.3). Figure 7.39 draws the third instruction's EX at the end of
+that slot (`ID — — EX MA`), twice. Where EX sits changes how the states are split
+between two instructions (PM 7.3), not their sum. **Build**: the slot's start
+(figure 7.4, PM 7.2.3).
+
+### C16 — Figure 7.26's slot arrows
+
+Figure 7.26 (MAC.W after MAC.W with IF contention) draws the second split's long
+arrow one column to the right of the stages it splits: the second MAC.W's second MA
+is under a short arrow and the long one covers the next instruction's EX and MA,
+which cannot share a slot (PM 7.2.1). Its stage columns follow PM 7.4.1 (MA, then
+EX/ID/IF together). **Build**: the columns.
+
+### C17 — Figures 7.40, 7.67 and 7.68 with impossible rows
+
+- Figure 7.40, first case (MULS.W right after MAC.L): MAC.L has five `mm` and MULS.W
+  an MA followed by an extended MA. MAC.L has four (PM 7.7.2, figure 7.34) and MULS.W
+  one MA (figure 7.53); the same figure's other three cases draw both correctly.
+- Figure 7.67 (DMULS.L after DMULS.L with IF contention): the second DMULS.L's row
+  is `if — EX — ID MA M—A`, EX before ID.
+- Figure 7.68, second case: MULS.W has two MAs, its second in the same column as the
+  next instruction's MA (PM 7.2.2 forbids it).
+
+**Build**: the rules every other multiplier figure follows; the tests use figure 7.68's
+first case for 7.40's, figure 7.37's layout (MAC.L after MAC.L, same stages) for
+7.67, and one MA for 7.68's MULS.W.
+
+### C18 — MAC.W and MAC.L: 3 states or 2
+
+PM table 7.2 and table A.50 give MAC.W and MAC.L "3/(2)" and "3/(2 to 4)"; figures
+7.23 and 7.34 draw 2 states from their EX to the next instruction's when nothing
+contends. In a sequential stream from on-chip memory fetches alternate `IF` and `if`,
+so one of the MAC's two consecutive MAs always meets a bus `IF`; the split adds a
+state, and both MA slots end before the next instruction's EX (which follows the
+second MA's split). **Ruling**: no contradiction in effect — the figures are the
+model, and the table's 3 is what they give in a real stream (tests/test_pipeline.py
+`test_c18_mac_is_three_states_in_a_sequential_stream`, both alignments).
+
+### C19 — SWM section 7 (the SH-DSP's pipeline) against PM
+
+SWM section 7 describes the SH-DSP, whose pipeline has a WB/DSP stage; it agrees with
+PM everywhere the scheduler was checked except two places:
+
+- SWM figure 7.14: a load followed by a store of the loaded register does not
+  contend ("the same data is simultaneously output again to the internal bus"). PM
+  7.5 lists two exceptions to the load-use split and not this one, so on PM's rule
+  the store uses the register and splits the slot.
+- SWM figure 7.16: an STS after MAC.W waits with stalls and then makes a one-state
+  MA after the `mm` ends; PM figure 7.30 extends the MA over the `mm`, one state
+  sooner.
+
+**Build**: PM, the SH-1/SH-2 manual (SH7604 is an SH-2). Open: DN's CPS3 loops (rung
+4) include stores after loads and could show the forwarding; a hardware result
+there would decide it.

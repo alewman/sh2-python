@@ -38,7 +38,7 @@ listed take 1 state.
 | `STC.L SR/GBR/VBR,@-Rn` | 2 | |
 | `MULS.W`, `MULU.W` | 1 to 3 | multiplier busy 2 states after MA |
 | `MUL.L`, `DMULS.L`, `DMULU.L` | 2 to 4 | multiplier busy 4 states after MA; next ID stalls one slot |
-| `MAC.W @Rm+,@Rn+` | 3 / (2) | two MAs; multiplier busy 2 states after the last; "(2)" when overlapped |
+| `MAC.W @Rm+,@Rn+` | 3 / (2) | two MAs; multiplier busy 2 states after the last; figure 7.23 draws 2, the 3 is its MA/IF split (C18) |
 | `MAC.L @Rm+,@Rn+` | 3 / (2 to 4) | two MAs; multiplier busy 4 states after the last |
 | Interrupt, address error | see "Exceptions" | 10-stage sequence |
 | General / slot illegal | see "Exceptions" | 9-stage sequence |
@@ -92,9 +92,11 @@ at 4n is an IF, at 4n+2 an `if`.
 - No split when the next instruction is a load to the same register, or is
   `MAC @Rm+,@Rn+` with Rm the loaded register.
 - A load whose result is the next instruction's address register: the next
-  MA waits for the load's MA to end (SWM figure 7.10).
-- A load followed by a store of the same register does not contend: the data
-  is forwarded on the internal bus (SWM figure 7.14).
+  MA waits for the load's MA to end (SWM figure 7.10) — the same split, since the
+  address register is a use.
+- SWM figure 7.14 (the SH-DSP): a load followed by a store of the same register
+  does not contend, the data being forwarded on the internal bus. PM 7.5 does not
+  list that exception; the core follows PM (C19).
 
 ### The multiplier (PM 7.7.2, SWM 7.2.3)
 
@@ -168,6 +170,51 @@ delayed; the slot's ID stalls 3 slots and the target's IF follows the second
 MA: PM figure 7.92), `TRAPA` 8, `SLEEP` 3. Interrupts are
 not accepted after `LDC`/`LDC.L`/`STC`/`STC.L`/`LDS`/`LDS.L`/`STS`/`STS.L`
 (HM 4.6.2), so the instruction after them is never replaced by an interrupt.
+
+## The scheduler (rung 3; `src/sh2_python/pipeline.py`)
+
+What the rules above become in the core, read off PM's figures (all 80 SH-2 figures
+of section 7 reproduced state for state, tests/test_pipeline.py; validation.md "Rung
+3"):
+
+- **Slots are structural.** An instruction's ID is in the slot of the previous
+  instruction's EX plus that instruction's ID stall (MAC.W, MAC.L, MUL.L, DMULS.L,
+  DMULU.L, STC.L and a taken delayed branch's slot 1; LDC.L and the memory logic
+  operations 2; TAS and RTE 3; SLEEP's 3 states as 2); EX follows ID; the class's
+  later stages follow in consecutive slots. Its IF is in the slot of the previous
+  instruction's ID. No timing changes which slot a stage is in.
+- **Slot lengths are timing.** A slot lasts its longest stage; an MA meeting a bus
+  `IF` or a load-use EX splits it (MA, then the rest: MA + IF states). An `if` (the
+  second half of a longword already fetched) is one state and never splits.
+- **The multiplier** runs `mm` states (2 or 4) after a multiply's multiplier MA,
+  regardless of slots; the next multiplier MA lasts at least until they end (PM's
+  `M—A`). The multiplier MA is MULS.W's only MA, the second MA of MAC.W, MAC.L,
+  MUL.L, DMULS.L and DMULU.L, and the MA of CLRMAC, LDS/LDS.L to and STS/STS.L from
+  MACH/MACL (which wait without starting `mm`).
+- **Fetches** are longwords. Branches, TRAPA and exceptions redirect the stream after
+  the overrun fetches PM draws (U11, C13, U21). Each IF and MA lasts the cycles it
+  makes: a cache hit or `if` 1 state, an external cycle the BSC's states plus the
+  board's `chip.wait`, a line fill its four cycles, a DIVU access its stall.
+- **Clock.** `chip.clock` inside a callback is the state the cycle starts on: an MA
+  at its slot's start, a fetch after the MA when they split. Between steps it is the
+  start of the scheduler's cursor (the last instruction's last MA, or its EX), so
+  `step()` returns the states the cursor moved; over a run they add up to PM 7.3's
+  EX-to-EX count.
+
+Simplified or not yet modelled (later rungs; each changes timing only):
+
+- **The write buffer** (HM 7.11.2): a store's MA lasts its whole external cycle; the
+  hardware lets the CPU go on once the buffer takes it. DN's store-overlap loop (rung
+  4) measures this.
+- **Cache-through reads' extra cycle** "to determine the cycle" (HM 7.11.2) and a
+  line fill's tag-check state are not added; a fill lasts its four cycles.
+- **On-chip module registers** take one state (plus the DIVU's stall), not TB #32's
+  3/4/11.
+- **DMA** cycles made at a step boundary delay the CPU's slots by their length (the
+  bus is held); cycle-steal interleaving is rung 5/6.
+- **Burst/SDRAM cycle shapes, idle cycles, refresh, arbitration** are the BSC's
+  later work (rung 5/6); every external cycle is an ordinary-space cycle.
+- A `BT`/`BF` whose target is the next instruction counts as not taken.
 
 ## Exceptions (PM 7.7.7, HM 5.5)
 

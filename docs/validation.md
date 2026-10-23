@@ -285,3 +285,149 @@ slave's writes reach the host only when the master reads them).
 On this shared, heavily loaded machine (load average ~70 on 32 cores), best of
 three: CPython 3.14.4 610,000 instructions/s, PyPy 3.11 (7.3.23) 2,380,000
 instructions/s with the cache off and 1,330,000 with it on.
+
+## What ran, rung 3 (2026-10-23)
+
+### Rung 3 — passed (manual): every SH-2 figure of PM section 7, state for state
+
+`src/sh2_python/pipeline.py` replaced the table timing with a stage scheduler
+(docs/timing.md "The scheduler"). `tests/test_pipeline.py` transcribes PM's figures
+column by column (one column = one state on PM's one-state memory) and compares each
+stage's first state with the run's, read back from `chip.pipeline_log`:
+
+- **80 SH-2 figures, all reproduced**: 78 as `test_figure` cases (109 with their
+  sub-figures: a, b, c, d in the order the figure draws them), 7.2 and 7.3 as an
+  invariant checked on every figure's run. Figures 7.14-7.22 and 7.45-7.52 are the
+  SH-1's (PM table 7.2 note 1) and are not tests.
+- **Mode.** "contention": the figures that say they assume MA and IF contention, and
+  the general figures 7.4-7.9; run with the SH-2's real longword fetches and compared
+  with `IF` and `if` told apart. "as drawn": figures that draw no split (PM 7.7: "the
+  manner of the split is not described in the tables"); run on a test board whose
+  fetches are all `if`, and `test_contention_never_moves_a_stage_to_another_slot`
+  runs each again with real fetches and checks every stage keeps its slot.
+- **Rulings** where a figure contradicts the rules or another figure: C13-C17 in
+  undocumented-behavior.md, named in the table's last column. C18 (table 7.2's 3
+  states for MAC.W/MAC.L against the figures' 2) and C19 (SWM's SH-DSP section 7
+  against PM) are rulings without a figure of their own.
+- **Also tested**: table 7.2's states measured EX to EX (25 cases, branches taken and
+  not, TRAPA 8, the illegal sequence 8, RTE 4; MAC.W/MAC.L 2 without contention and 3
+  in a sequential stream, C18); SLEEP's 3 states; the load-use rule and its two
+  exceptions, PR as a load destination; overrun fetches as bus cycles and as a cache
+  line fill (U11); board waits stretching an MA and an IF; a state saved in the
+  middle of the pipeline resuming to the same states.
+
+The figures are the judge here (manual tier); none of this is hardware evidence.
+Rung 4 (DN's loops, 32xspd's 11 states) is the first that is.
+
+| PM figure | What it draws | Test | Mode | Result | Note |
+| --- | --- | --- | --- | --- | --- |
+| 7.1 | Basic structure of pipeline flow | `test_figure[7.1]` | as drawn | reproduced |  |
+| 7.2, 7.3 | Impossible pipeline flows | `test_no_two_stages_of_a_kind_share_a_slot` (every figure run) | invariant | reproduced | |
+| 7.4 | Slots requiring multiple cycles | `test_figure[7.4]` | contention | reproduced as ruled | C14 |
+| 7.5 | How instruction execution states are counted | `test_figure[7.5]` | contention | reproduced as ruled | C14 |
+| 7.6 | Operation when IF and MA are in contention | `test_figure[7.6]` | contention | reproduced as ruled | C14 |
+| 7.7a | IF from a longword boundary | `test_figure[7.7a]` | contention | reproduced |  |
+| 7.7b | IF from a word boundary | `test_figure[7.7b]` | contention | reproduced |  |
+| 7.8 | IF location and IF/MA contention | `test_figure[7.8]` | contention | reproduced |  |
+| 7.9 | Effects of memory load instructions | `test_figure[7.9]` | contention | reproduced |  |
+| 7.10 | Register-register transfer | `test_figure[7.10]` | as drawn | reproduced |  |
+| 7.11 | Memory load | `test_figure[7.11]` | as drawn | reproduced |  |
+| 7.12 | Memory store | `test_figure[7.12]` | as drawn | reproduced |  |
+| 7.13 | Arithmetic between registers | `test_figure[7.13]` | as drawn | reproduced |  |
+| 7.23 | MAC.W | `test_figure[7.23]` | as drawn | reproduced |  |
+| 7.24 | MAC.W after MAC.W | `test_figure[7.24]` | as drawn | reproduced |  |
+| 7.25 | Consecutive MAC.Ws with misalignment | `test_figure[7.25]` | contention | reproduced |  |
+| 7.26 | MAC.W after MAC.W, MA and IF contention | `test_figure[7.26]` | contention | reproduced as ruled | C16 |
+| 7.27 | MAC.L after MAC.W | `test_figure[7.27]` | as drawn | reproduced |  |
+| 7.28a | MULS.W after MAC.W | `test_figure[7.28a]` | as drawn | reproduced |  |
+| 7.28b | MULS.W after MAC.W and one other | `test_figure[7.28b]` | as drawn | reproduced |  |
+| 7.29 | DMULS.L after MAC.W | `test_figure[7.29]` | as drawn | reproduced |  |
+| 7.30a | STS after MAC.W | `test_figure[7.30a]` | contention | reproduced |  |
+| 7.30b | STS after MAC.W (MAC.W at 4n + 2) | `test_figure[7.30b]` | contention | reproduced |  |
+| 7.31a | STS.L after MAC.W | `test_figure[7.31a]` | contention | reproduced |  |
+| 7.31b | STS.L after MAC.W (MAC.W at 4n + 2) | `test_figure[7.31b]` | contention | reproduced |  |
+| 7.32a | LDS after MAC.W | `test_figure[7.32a]` | contention | reproduced |  |
+| 7.32b | LDS after MAC.W (MAC.W at 4n + 2) | `test_figure[7.32b]` | contention | reproduced |  |
+| 7.33a | LDS.L after MAC.W | `test_figure[7.33a]` | contention | reproduced |  |
+| 7.33b | LDS.L after MAC.W (MAC.W at 4n + 2) | `test_figure[7.33b]` | contention | reproduced |  |
+| 7.34 | MAC.L | `test_figure[7.34]` | as drawn | reproduced |  |
+| 7.35a | MAC.L after MAC.L | `test_figure[7.35a]` | as drawn | reproduced |  |
+| 7.35b | MAC.L after MAC.L and two others | `test_figure[7.35b]` | as drawn | reproduced |  |
+| 7.36 | Consecutive MAC.Ls with misalignment | `test_figure[7.36]` | contention | reproduced |  |
+| 7.37 | MAC.L after MAC.L, MA and IF contention | `test_figure[7.37]` | contention | reproduced |  |
+| 7.38a | MAC.W after MAC.L | `test_figure[7.38a]` | as drawn | reproduced |  |
+| 7.38b | MAC.W after MAC.L and two others | `test_figure[7.38b]` | as drawn | reproduced |  |
+| 7.39a | DMULS.L after MAC.L | `test_figure[7.39a]` | as drawn | reproduced as ruled | C15 |
+| 7.39b | DMULS.L after MAC.L and one other | `test_figure[7.39b]` | as drawn | reproduced as ruled | C15 |
+| 7.39c | DMULS.L after MAC.L and two others | `test_figure[7.39c]` | as drawn | reproduced |  |
+| 7.40a | MULS.W after MAC.L | `test_figure[7.40a]` | as drawn | reproduced as ruled | C17 |
+| 7.40b | MULS.W after MAC.L and one other | `test_figure[7.40b]` | as drawn | reproduced |  |
+| 7.40c | MULS.W after MAC.L and two others | `test_figure[7.40c]` | as drawn | reproduced |  |
+| 7.40d | MULS.W after MAC.L and three others | `test_figure[7.40d]` | as drawn | reproduced |  |
+| 7.41a | STS after MAC.L | `test_figure[7.41a]` | contention | reproduced |  |
+| 7.41b | STS after MAC.L (MAC.L at 4n + 2) | `test_figure[7.41b]` | contention | reproduced |  |
+| 7.42a | STS.L after MAC.L | `test_figure[7.42a]` | contention | reproduced |  |
+| 7.42b | STS.L after MAC.L (MAC.L at 4n + 2) | `test_figure[7.42b]` | contention | reproduced |  |
+| 7.43a | LDS after MAC.L | `test_figure[7.43a]` | contention | reproduced |  |
+| 7.43b | LDS after MAC.L (MAC.L at 4n + 2) | `test_figure[7.43b]` | contention | reproduced |  |
+| 7.44a | LDS.L after MAC.L | `test_figure[7.44a]` | contention | reproduced |  |
+| 7.44b | LDS.L after MAC.L (MAC.L at 4n + 2) | `test_figure[7.44b]` | contention | reproduced |  |
+| 7.53 | MULS.W | `test_figure[7.53]` | as drawn | reproduced |  |
+| 7.54 | MAC.W after MULS.W | `test_figure[7.54]` | as drawn | reproduced |  |
+| 7.55 | MAC.L after MULS.W | `test_figure[7.55]` | as drawn | reproduced |  |
+| 7.56a | MULS.W after MULS.W | `test_figure[7.56a]` | as drawn | reproduced |  |
+| 7.56b | MULS.W after MULS.W and one other | `test_figure[7.56b]` | as drawn | reproduced |  |
+| 7.57 | MULS.W after MULS.W, MA and IF contention | `test_figure[7.57]` | contention | reproduced |  |
+| 7.58 | DMULS.L after MULS.W | `test_figure[7.58]` | as drawn | reproduced |  |
+| 7.59a | STS after MULS.W | `test_figure[7.59a]` | contention | reproduced |  |
+| 7.59b | STS after MULS.W (MULS.W at 4n + 2) | `test_figure[7.59b]` | contention | reproduced |  |
+| 7.60a | STS.L after MULS.W | `test_figure[7.60a]` | contention | reproduced |  |
+| 7.60b | STS.L after MULS.W (MULS.W at 4n + 2) | `test_figure[7.60b]` | contention | reproduced |  |
+| 7.61a | LDS after MULS.W | `test_figure[7.61a]` | contention | reproduced |  |
+| 7.61b | LDS after MULS.W (MULS.W at 4n + 2) | `test_figure[7.61b]` | contention | reproduced |  |
+| 7.62a | LDS.L after MULS.W | `test_figure[7.62a]` | contention | reproduced |  |
+| 7.62b | LDS.L after MULS.W (MULS.W at 4n + 2) | `test_figure[7.62b]` | contention | reproduced |  |
+| 7.63 | DMULS.L | `test_figure[7.63]` | as drawn | reproduced |  |
+| 7.64a | MAC.L after DMULS.L | `test_figure[7.64a]` | as drawn | reproduced |  |
+| 7.64b | MAC.L after DMULS.L and two others | `test_figure[7.64b]` | as drawn | reproduced |  |
+| 7.65a | MAC.W after DMULS.L | `test_figure[7.65a]` | as drawn | reproduced |  |
+| 7.65b | MAC.W after DMULS.L and two others | `test_figure[7.65b]` | as drawn | reproduced |  |
+| 7.66a | DMULS.L after DMULS.L | `test_figure[7.66a]` | as drawn | reproduced |  |
+| 7.66b | DMULS.L after DMULS.L and one other | `test_figure[7.66b]` | as drawn | reproduced |  |
+| 7.66c | DMULS.L after DMULS.L and two others | `test_figure[7.66c]` | as drawn | reproduced |  |
+| 7.67 | DMULS.L after DMULS.L, MA and IF contention | `test_figure[7.67]` | contention | reproduced as ruled | C17 |
+| 7.68a | MULS.W after DMULS.L | `test_figure[7.68a]` | as drawn | reproduced |  |
+| 7.68b | MULS.W after DMULS.L and three others | `test_figure[7.68b]` | as drawn | reproduced as ruled | C17 |
+| 7.69 | MULS.W after DMULS.L, MA and IF contention | `test_figure[7.69]` | contention | reproduced |  |
+| 7.70a | STS after DMULS.L | `test_figure[7.70a]` | contention | reproduced |  |
+| 7.70b | STS after DMULS.L (DMULS.L at 4n + 2) | `test_figure[7.70b]` | contention | reproduced |  |
+| 7.71a | STS.L after DMULS.L | `test_figure[7.71a]` | contention | reproduced |  |
+| 7.71b | STS.L after DMULS.L (DMULS.L at 4n + 2) | `test_figure[7.71b]` | contention | reproduced |  |
+| 7.72a | LDS after DMULS.L | `test_figure[7.72a]` | contention | reproduced |  |
+| 7.72b | LDS after DMULS.L (DMULS.L at 4n + 2) | `test_figure[7.72b]` | contention | reproduced |  |
+| 7.73a | LDS.L after DMULS.L | `test_figure[7.73a]` | contention | reproduced |  |
+| 7.73b | LDS.L after DMULS.L (DMULS.L at 4n + 2) | `test_figure[7.73b]` | contention | reproduced |  |
+| 7.74 | Register-register logic operation | `test_figure[7.74]` | as drawn | reproduced |  |
+| 7.75 | Memory logic operation | `test_figure[7.75]` | as drawn | reproduced |  |
+| 7.76 | TAS | `test_figure[7.76]` | as drawn | reproduced |  |
+| 7.77 | Shift | `test_figure[7.77]` | as drawn | reproduced |  |
+| 7.78 | BT, condition satisfied | `test_figure[7.78]` | as drawn | reproduced |  |
+| 7.79 | BT, condition not satisfied | `test_figure[7.79]` | as drawn | reproduced |  |
+| 7.80 | BT/S, condition satisfied | `test_figure[7.80]` | as drawn | reproduced |  |
+| 7.81 | BT/S, condition not satisfied | `test_figure[7.81]` | as drawn | reproduced |  |
+| 7.82 | Unconditional branch | `test_figure[7.82]` | as drawn | reproduced |  |
+| 7.83 | System control ALU | `test_figure[7.83]` | as drawn | reproduced |  |
+| 7.84 | LDC.L | `test_figure[7.84]` | as drawn | reproduced |  |
+| 7.85 | STC.L | `test_figure[7.85]` | as drawn | reproduced |  |
+| 7.86 | LDS.L (PR) | `test_figure[7.86]` | as drawn | reproduced |  |
+| 7.87 | STS.L (PR) | `test_figure[7.87]` | as drawn | reproduced |  |
+| 7.88 | Register to MAC transfer | `test_figure[7.88]` | as drawn | reproduced |  |
+| 7.89 | Memory to MAC transfer | `test_figure[7.89]` | as drawn | reproduced |  |
+| 7.90 | MAC to register transfer | `test_figure[7.90]` | as drawn | reproduced |  |
+| 7.91 | MAC to memory transfer | `test_figure[7.91]` | as drawn | reproduced |  |
+| 7.92 | RTE | `test_figure[7.92]` | as drawn | reproduced |  |
+| 7.93 | TRAPA | `test_figure[7.93]` | as drawn | reproduced |  |
+| 7.94 | SLEEP | `test_figure[7.94]` | as drawn | reproduced |  |
+| 7.95 | Interrupt exception processing | `test_figure[7.95]` | as drawn | reproduced |  |
+| 7.96 | Address error exception processing | `test_figure[7.96]` | as drawn | reproduced |  |
+| 7.97 | Illegal instruction exception processing | `test_figure[7.97]` | as drawn | reproduced |  |
