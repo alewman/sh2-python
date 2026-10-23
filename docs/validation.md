@@ -609,3 +609,13 @@ the gate replays, which hold the cache off and take time-dependent on-chip value
 DMA writes and interrupts from MAME's trace, so no state the core computes there
 depends on when a cycle happens; they were not rerun (`python validation/rung2/replay.py
 tests/mame_traces/bus-<cart>/master.log` reruns one).
+
+The deferred purge can change what a cached read returns, so the cache-on replays
+were rerun (`--cache`, boot ROM and cartridge preloaded with `--seed`, PyPy, both at
+once): BC Racers 30,164,032 instructions, 58 `mame-interrupt-after-ldc` (C12), nothing
+else, 860 s; Doom 34,555,701, nothing attributed, 950 s. The same as before the write
+buffer.
+
+**Speed** (`benchmarks/harness_speed.py`, one run each, load average ~40 on 32 cores,
+informational): CPython 3.14.4 185,000 instructions/s; PyPy 3.11 104,000 cache off,
+114,000 cache on (rung 3: 215,000, 92,000 and 90,000 at load 50-58). Not optimised.
