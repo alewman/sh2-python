@@ -301,6 +301,15 @@ class SH7604(
             modules={module.NAME: module.state() for module in self.modules},
         )
 
+    @property
+    def state(self) -> ChipState:
+        """The chip's state as a :class:`ChipState` (the brief's ``chip.state``)."""
+        return self.capture_state()
+
+    @state.setter
+    def state(self, value: ChipState) -> None:
+        self.restore_state(value)
+
     def restore_state(self, state: ChipState) -> None:
         """Load a :class:`ChipState` (registers, in-flight state, every module)."""
         self.R = list(state.r)

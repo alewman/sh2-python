@@ -280,3 +280,15 @@ def test_mov_l_predecrement_stores_the_old_value():
     h.chip.R[1] = 0x06007004
     run(h, 1)
     assert h.chip.R[1] == 0x06007000 and long_at(h, 0x06007000) == 0x06007004
+
+
+def test_state_round_trip():
+    h = make([0xE07F, 0xA000, 0x0009, 0x0009])
+    chip = h.chip
+    chip.step()
+    chip.step()  # into the BRA's slot: in-flight state
+    saved = chip.state
+    assert saved.delay_target >= 0 and saved.r[0] == 0x7F
+    chip.step()
+    chip.state = saved
+    assert chip.capture_state() == saved
