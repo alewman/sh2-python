@@ -10,16 +10,18 @@ the CPU (the same call that put the 2A03's sound and DMA into 6502-python).
 The boards, [sega32x-python](../sega32x-python) first and Saturn/ST-V later,
 own everything outside the package.
 
-**Status (2026-10-23): rungs 0, 1 and 2 pass; stopped for review before rung 3.**
+**Status (2026-10-23): rungs 0-3 pass; stopped for review before rung 4.**
 `src/sh2_python` is the SH7604: the SH-2 CPU (all 142 forms, delay slots,
 exceptions, interrupts) with the cache, BSC, INTC, DMAC, DIVU, FRT (FTOA), WDT,
 SCI and power-down as modules beside it (the UBC is a register map only), and the
 tooling (`debug.py`, `trace.py`, `console.py`, `python -m sh2_python`). Timing is
-the manuals' per-instruction minimum plus bus waits; the pipeline is rung 3's.
+PM section 7's pipeline: a stage scheduler (`pipeline.py`) with IF/MA splits,
+load-use, the multiplier's `mm`, branch and exception overrun fetches, and bus
+waits stretching the stage that owns the cycle.
 What passed, with numbers, is in [docs/validation.md](docs/validation.md) ("What
 ran"): the decode table from PM appendix A against MAME's and jgenesis' decoders;
-16,600 generated cases agreed by MAME and jgenesis or ruled from the manuals; and
-129 M instructions of four 32X games replayed register-exact against MAME 0.285.
+16,600 generated cases agreed by MAME and jgenesis or ruled from the manuals; 129 M instructions of four 32X games replayed register-exact against MAME 0.285;
+and all 80 SH-2 pipeline figures of PM section 7 reproduced state for state.
 
 ```python
 from sh2_python import SH7604

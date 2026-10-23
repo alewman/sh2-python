@@ -319,6 +319,31 @@ stage's first state with the run's, read back from `chip.pipeline_log`:
 The figures are the judge here (manual tier); none of this is hardware evidence.
 Rung 4 (DN's loops, 32xspd's 11 states) is the first that is.
 
+**The earlier gates with the scheduler in place.** Fast tests 559 on CPython 3.14 and
+PyPy 3.11 (243 before + 316 in test_pipeline.py); ruff clean. Rung 1: all 16,600 cases
+(`pytest -m slow tests/test_rung1.py`, PyPy, 50 s at load ~78). Rung 2, PyPy, cache
+off, at load ~50-78 with the four replays running at once:
+
+| Cartridge | Instructions | Interrupts injected | Attributed to MAME | First difference | Seconds |
+| --- | ---: | ---: | --- | --- | ---: |
+| BC Racers (USA) | 30,164,032 | 25,200 | 58 `mame-interrupt-after-ldc` (C12) | none | 2,168 |
+| Doom (Japan, USA) | 34,555,701 | 80 | 0 | none | 2,202 |
+| Knuckles' Chaotix (Japan, USA) | 32,543,515 | 61 | 0 (1,387 DMA-write instructions, as before) | none | 1,998 |
+| Virtua Racing Deluxe (USA) | 31,791,810 | 0 | 0 | none | 1,898 |
+
+Identical to rung 2's results. The replay now rereads each opcode
+(`chip._drop_fetched`), because its memory holds only what MAME executed and the core
+fetches two instructions ahead and makes overrun fetches; the cache-on replays were
+not rerun.
+
+**Speed** (`benchmarks/harness_speed.py`, one run, load average 50-58 on 32 cores,
+informational): CPython 3.14.4 215,000 instructions/s (was 610,000); PyPy 3.11
+92,000 cache off, 90,000 cache on (was 2,380,000 and 1,330,000). The PyPy figure is
+out of line with the replays (13,900-16,800 instructions/s against 27,600 before, a
+factor of 2) and with CPython's factor of 3, so it looks like a JIT pathology in this
+loop rather than the scheduler's cost; not investigated (reference cores are correct,
+not fast).
+
 | PM figure | What it draws | Test | Mode | Result | Note |
 | --- | --- | --- | --- | --- | --- |
 | 7.1 | Basic structure of pipeline flow | `test_figure[7.1]` | as drawn | reproduced |  |
