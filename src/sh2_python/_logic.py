@@ -81,10 +81,14 @@ class LogicMixin:
         space = address >> 29
         if space in (0, 1):
             # HM 8.4.4: the read is cache-through whatever the area; the write goes
-            # through and updates a hit line.
+            # through and updates a hit line. Each is one of its MAs (PM figure 7.76).
+            if self._p_ma_left:
+                self._ma_next()
             if self.observe is not None:
                 self.observe(address, 8, THROUGH)
             value = self._bus_read(address, 8, THROUGH)
+            if self._p_ma_left:
+                self._ma_next()
             if self.observe is not None:
                 self.observe(address, 8, WRITE)
             if space == 0 and self.cache.enabled:

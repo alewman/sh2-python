@@ -231,9 +231,9 @@ def test_board_wait_states_lengthen_the_cycle():
     chip.read = slow
     start = chip.clock
     chip._read(0x20000000, 32)
-    # Reset WCR: area 0 long wait = 6 (BCR1.A0LW = 11); 2 + 6 + 5 states, minus the
-    # table's one.
-    assert chip.clock - start == 2 + 6 + 5 - 1
+    # Reset WCR: area 0 long wait = 6 (BCR1.A0LW = 11); 2 + 6 + 5 states, all of them
+    # the access's (the MA or IF that makes it lasts its cycles, PM 7.2.3).
+    assert chip.clock - start == 2 + 6 + 5
 
 
 def test_master_bit_reads_the_mode_pin():

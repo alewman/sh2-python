@@ -16,7 +16,9 @@ class ChipState:
     the target of a delayed branch whose slot (at ``pc``) runs next: that and
     ``no_interrupt`` (the last instruction blocks interrupts, HM 4.6.2),
     ``address_error`` (one is pending) and ``nmi_pending`` are the in-flight state a
-    step boundary needs to resume exactly. ``modules`` maps each module's name to its
+    step boundary needs to resume exactly, with ``pipeline``, the stage scheduler's
+    in-flight slots and fetched longwords (opaque integers; empty means "refetch from
+    ``pc``", which is what a state built by hand gets). ``modules`` maps each module's name to its
     registers. ``sr`` holds only M, Q, I3-I0, S, T (mask H'3F3).
 
     Rung 1's corpus uses ``r``, ``sr``, ``gbr``, ``vbr``, ``mach``, ``macl``, ``pr``
@@ -37,6 +39,7 @@ class ChipState:
     address_error: bool = False
     nmi_pending: bool = False
     clock: int = 0
+    pipeline: tuple[int, ...] = ()
     modules: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

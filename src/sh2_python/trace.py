@@ -20,7 +20,8 @@ from sh2_python.debug import BoundaryKind, StepRecord
 from sh2_python.disasm import disassemble_word
 from sh2_python.state import ChipState
 
-TRACE_SCHEMA_VERSION = 1
+#: 2: states carry ``pipeline`` (the stage scheduler's in-flight state, rung 3).
+TRACE_SCHEMA_VERSION = 2
 _STATE_KEYS = tuple(f.name for f in fields(ChipState))
 _MISSING = object()
 
@@ -38,6 +39,7 @@ def _state_from_dict(data: dict) -> ChipState:
         raise ValueError(f"a state must have exactly the keys {sorted(_STATE_KEYS)}")
     values = dict(data)
     values["r"] = tuple(values["r"])
+    values["pipeline"] = tuple(values["pipeline"])
     return ChipState(**values)
 
 

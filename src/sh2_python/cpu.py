@@ -19,12 +19,13 @@ replaced at any time; so are ``read_onchip(module, address, width)`` and
 access goes (a replay host uses them to see or substitute those accesses).
 """
 
+import re
 from collections.abc import Callable
 
 from sh2_python._arith import ArithMixin
 from sh2_python._branch import BranchMixin
 from sh2_python._core import M32, SR_MASK, CoreMixin, ReadFunction, WriteFunction
-from sh2_python._decode import FORMS, decode_index
+from sh2_python._decode import FORMS, Form, decode_index
 from sh2_python._logic import LogicMixin
 from sh2_python._multiply import MultiplyMixin
 from sh2_python._shift import ShiftMixin
@@ -36,7 +37,7 @@ from sh2_python.divu import DIVU
 from sh2_python.dmac import DMAC
 from sh2_python.frt import FRT
 from sh2_python.intc import INTC
-from sh2_python.pipeline import CLASSES, EXCEPTIONS, TableTiming
+from sh2_python.pipeline import EXCEPTIONS, PLANS, PR_BIT, PipelineMixin, Plan
 from sh2_python.power import Power
 from sh2_python.sci import SCI
 from sh2_python.state import ChipState
@@ -53,26 +54,80 @@ INTERRUPT_DISABLING = frozenset("LDC LDC.L STC STC.L LDS LDS.L STS STS.L".split(
 _INDEX = decode_index()
 
 
-def _build_tables() -> tuple[list[str], list[int], bytearray, bytearray]:
-    """Per-opcode handler names, base states, and the two rule tables."""
+_REGISTER = re.compile(r"\bR[mn0]\b|\bPR\b")
+#: Instructions that read or write PR without naming it (PM 6.10, 6.11, 6.26, 6.51).
+_IMPLICIT_PR = frozenset("RTS BSR BSRF JSR".split())
+
+
+def _register_bits(form: Form, opcode: int, text: str) -> int:
+    """The register bits (pipeline.PR_BIT for PR) named in an operand text."""
+    bits = 0
+    for token in _REGISTER.findall(text):
+        if token == "PR":
+            bits |= PR_BIT
+        elif token == "R0":
+            bits |= 1
+        else:
+            field = form.code.rindex(token[1])  # the n or m field's last bit position
+            bits |= 1 << ((opcode >> (15 - field)) & 15)
+    return bits
+
+
+def _load_use(form: Form, opcode: int) -> tuple[int, int]:
+    """(the register a load writes in WB, the registers the load-use rule sees used).
+
+    PM 7.5: a load's WB comes after the next instruction's EX, so that EX splits the
+    slot when it uses the loaded register as a source or a destination; not when the
+    next instruction is a load to the same register (its destination is not a use)
+    nor a ``MAC @Rm+,@Rn+``. Loads are table 7.2's memory loads, ``LDS.L @Rm+,PR`` and
+    ``STS MACH/MACL,Rn`` (WB to Rn); LDC.L's two-slot ID stall keeps its successor's
+    EX out of its MA's slot.
+    """
+    pipeline = form.pipeline
+    operands = form.operands
+    if pipeline in ("mac_w", "mac_l"):
+        return 0, 0
+    if pipeline in ("load", "mac_to_reg"):
+        sources, _, dest = operands.rpartition(",")
+        return _register_bits(form, opcode, dest), _register_bits(form, opcode, sources)
+    if pipeline == "lds_l_pr":
+        return PR_BIT, _register_bits(form, opcode, operands.rpartition(",")[0])
+    uses = _register_bits(form, opcode, operands)
+    if form.mnemonic in _IMPLICIT_PR:
+        uses |= PR_BIT
+    return 0, uses
+
+
+def _build_tables() -> tuple[list[str], list[Plan], list[int], list[int], bytearray, bytearray]:
+    """Per-opcode handler names, pipeline plans, load-use registers, and the rule tables."""
     names: list[str] = []
-    states: list[int] = []
+    plans: list[Plan] = []
+    load_dest: list[int] = []
+    uses: list[int] = []
     slot_illegal = bytearray(0x10000)
     blocks = bytearray(0x10000)
+    illegal = PLANS["illegal"]
     for opcode, form in enumerate(_INDEX):
         if form is None:
+            # Undefined code: the illegal instruction sequence replaces it in its ID
+            # (PM figure 7.97).
             names.append("_illegal")
-            states.append(0)
+            plans.append(illegal)
+            load_dest.append(0)
+            uses.append(0)
             slot_illegal[opcode] = 1
             continue
         names.append(form.handler)
-        states.append(CLASSES[form.pipeline].states)
+        plans.append(PLANS[form.pipeline])
+        dest, used = _load_use(form, opcode)
+        load_dest.append(dest)
+        uses.append(used)
         slot_illegal[opcode] = form.mnemonic in PC_CHANGING
         blocks[opcode] = form.mnemonic in INTERRUPT_DISABLING
-    return names, states, slot_illegal, blocks
+    return names, plans, load_dest, uses, slot_illegal, blocks
 
 
-_NAMES, _STATES, _SLOT_ILLEGAL, _BLOCKS = _build_tables()
+_NAMES, _PLANS, _LOAD_DEST, _USES, _SLOT_ILLEGAL, _BLOCKS = _build_tables()
 
 
 class SH7604(
@@ -84,6 +139,7 @@ class SH7604(
     BranchMixin,
     SystemMixin,
     CoreMixin,
+    PipelineMixin,
 ):
     """The Hitachi SH7604: an SH-2 CPU with cache, DMAC, DIVU, FRT, WDT, SCI, BSC, INTC, UBC.
 
@@ -164,13 +220,10 @@ class SH7604(
         self.sleeping = False
 
         # Internal state of the stepper.
-        self._extra = 0
         self._no_interrupt = False
         self._address_error = False
         self._nmi_seen = self.nmi
         self._nmi_pending = False
-        self._ibuf = 0
-        self._ibuf_line = -1
         self._onchip_level = 0
         self._onchip_vector = 0
         self._next_event = 1 << 62
@@ -205,9 +258,15 @@ class SH7604(
             cls._table = [getattr(cls, name) for name in _NAMES]
         self._slot_illegal = _SLOT_ILLEGAL
         self._blocks_interrupt = _BLOCKS
-        self.timing = TableTiming(_STATES)
-        self._base_states = self.timing.base_states
-        self._exception_states = {name: c.states for name, c in EXCEPTIONS.items()}
+        self._plans = _PLANS
+        self._load_dest = _LOAD_DEST
+        self._uses = _USES
+        self._exception_plans = {name: PLANS[name] for name in EXCEPTIONS}
+
+        # The stage scheduler (pipeline.py).
+        #: A list to receive the scheduler's events (tests, tools), or None.
+        self.pipeline_log: list | None = None
+        self._pipeline_reset()
 
     # -- the on-chip register map ------------------------------------------------------
 
@@ -268,15 +327,15 @@ class SH7604(
         self.vbr = 0
         self.delay_target = -1
         self.sleeping = False
-        self._extra = 0
         self._no_interrupt = False
         self._address_error = False
         self._nmi_pending = False
         self._nmi_seen = self.nmi
-        self._ibuf_line = -1
         base = 0 if power_on else 8
+        self._p_ma_left = 0
         self.pc = self._read32(base)
         self.R[15] = self._read32(base + 4)
+        self._pipeline_restart()
         self._reschedule()
 
     # -- state -------------------------------------------------------------------------
@@ -298,6 +357,7 @@ class SH7604(
             address_error=self._address_error,
             nmi_pending=self._nmi_pending,
             clock=self.clock,
+            pipeline=self._pipeline_state(),
             modules={module.NAME: module.state() for module in self.modules},
         )
 
@@ -323,7 +383,11 @@ class SH7604(
         self._address_error = state.address_error
         self._nmi_pending = state.nmi_pending
         self.clock = state.clock
-        self._ibuf_line = -1
+        if state.pipeline:
+            self._load_pipeline_state(state.pipeline)
+        else:
+            self._p_slot = 0
+            self._pipeline_restart()
         for module in self.modules:
             values = state.modules.get(module.NAME)
             if values:

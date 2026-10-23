@@ -189,9 +189,8 @@ class Replay:
         chip.R = list(regs["r"])
         chip.sr, chip.gbr, chip.vbr = regs["sr"], regs["gbr"], regs["vbr"]
         chip.mach, chip.macl, chip.pr = regs["mach"], regs["macl"], regs["pr"]
-        chip.pc = regs["pc"]
+        chip.pc = regs["pc"]  # the core refetches when the host moves the PC
         chip.delay_target = -1
-        chip._ibuf_line = -1
 
     def differs(self, regs: dict[str, int]) -> list[str]:
         chip = self.chip
@@ -271,6 +270,10 @@ class Replay:
             pc = chip.pc
             opcode = int.from_bytes(memory[pc % MEMORY : pc % MEMORY + 2], "big")
             before_sleep = chip.sleeping
+            # The core fetches two instructions ahead (PM 7.4) and fetches what taken
+            # branches discard (U11); this memory is filled one instruction ahead, so
+            # the core reads each opcode again when it runs it. Timing is not compared.
+            chip._drop_fetched()
             chip.step()
             replayed += 1
             text = Where(replayed, current.line, pc, opcode)
@@ -291,6 +294,7 @@ class Replay:
                     # HM 4.6: no interrupt here; MAME took one anyway.
                     self.note("mame-interrupt-after-ldc", text)
                     chip._no_interrupt = False
+                chip._drop_fetched()
                 chip.step()
                 injected += 1
             # MAME's SLEEP: it loops on the instruction (sh2.cpp SLEEP: pc -= 2).

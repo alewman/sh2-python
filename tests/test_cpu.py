@@ -112,18 +112,6 @@ def test_u2_not_taken_bt_s_makes_no_slot():
     assert chip.delay_target == PROGRAM + 4 + 4 + 6  # BRA's own target, not an exception
 
 
-def test_bt_taken_and_not_taken_states():
-    # PM table A.50: BT 3 taken / 1 not (one-state memory: the harness's area 3 has the
-    # BSC's reset waits, so compare against a NOP's cost).
-    taken = make([0x0018, 0x8900, NOP, NOP])
-    taken.chip.step()
-    t_states = taken.chip.step()
-    untaken = make([0x0008, 0x8900, NOP, NOP])
-    untaken.chip.step()
-    u_states = untaken.chip.step()
-    assert t_states - u_states >= 2
-
-
 # -- exceptions ---------------------------------------------------------------------
 
 

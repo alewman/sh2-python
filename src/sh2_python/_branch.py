@@ -2,11 +2,11 @@
 
 PM 6.6-6.13, 6.25-6.26, 6.51. The PC in every displacement is the branch's address + 4
 (``self.pc + 2`` here; ``_core.py``). ``BT``/``BF`` are not delayed: taken, they jump at
-once and cost 3 states instead of 1 (PM table A.50; PM 7.7.5: "the two instructions
-fetched after the branch are discarded"). The others are delayed: they record the
-target in ``delay_target`` and the next step runs the slot (``_core.py``); the target
-register is read now, before the slot can change it (PM 4.1.5). ``BT/S``/``BF/S`` cost
-2 states taken, 1 not taken, and make no slot when not taken (U2).
+once. The others are delayed: they record the target in ``delay_target`` and the next
+step runs the slot (``_core.py``); the target register is read now, before the slot can
+change it (PM 4.1.5). ``BT/S``/``BF/S`` make no slot when not taken (U2). What a taken
+branch costs (3 states for ``BT``/``BF``, 2 for the delayed ones, PM table A.50) and
+the fetches it discards are the scheduler's (pipeline.py, PM 7.7.5).
 
 C6: HM chapter 2 prints the descriptions of ``BT`` and ``BT/S`` swapped; PM and SWM are
 followed. PM table A.50 also misprints BT/S's not-taken case as "When T = 1, nop".
@@ -31,27 +31,21 @@ class BranchMixin:
         """BF label -- if T = 0, disp x 2 + PC -> PC; else nop (PM 6.6)."""
         if not self.sr & T:
             self.pc = (self.pc + 2 + _disp8(op)) & M32
-            self._ibuf_line = -1
-            self._extra += 2
 
     def _op_bt(self, op: int) -> None:
         """BT label -- if T = 1, disp x 2 + PC -> PC; else nop (PM 6.12)."""
         if self.sr & T:
             self.pc = (self.pc + 2 + _disp8(op)) & M32
-            self._ibuf_line = -1
-            self._extra += 2
 
     def _op_bf_s(self, op: int) -> None:
         """BF/S label -- if T = 0, delayed branch to disp x 2 + PC; else nop (PM 6.7)."""
         if not self.sr & T:
             self.delay_target = (self.pc + 2 + _disp8(op)) & M32
-            self._extra += 1
 
     def _op_bt_s(self, op: int) -> None:
         """BT/S label -- if T = 1, delayed branch to disp x 2 + PC; else nop (PM 6.13)."""
         if self.sr & T:
             self.delay_target = (self.pc + 2 + _disp8(op)) & M32
-            self._extra += 1
 
     def _op_bra(self, op: int) -> None:
         """BRA label -- delayed branch to disp x 2 + PC (PM 6.8)."""

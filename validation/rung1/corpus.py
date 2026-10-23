@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from sh2_python._decode import FORMS, Form, decode_index  # noqa: E402
+from sh2_python.bus import FETCH  # noqa: E402
 
 CODE_BASE, CODE_SIZE = 0x0600F000, 0x2400
 DATA_BASE, DATA_SIZE = 0x06020000, 0x1000
@@ -406,16 +407,20 @@ def run_core(case: dict) -> str:
     images = [bytes(buf) for _, buf in regions]
     outside = []
 
-    def locate(address: int, width: int) -> tuple[bytearray | None, int]:
+    def locate(address: int, width: int, fetch: bool = False) -> tuple[bytearray | None, int]:
         address &= 0x1FFFFFFF
         for base, buf in regions:
             if base <= address and address + (width >> 3) <= base + len(buf):
                 return buf, address - base
-        outside.append(address)
+        if not fetch:
+            outside.append(address)
         return None, 0
 
     def read(address: int, width: int, kind: int) -> int:
-        buf, offset = locate(address, width)
+        # The core's pipeline fetches ahead of execution and fetches what a taken branch
+        # discards (PM 7.7.5, U11): a fetch past the regions is not an access the case
+        # makes; it reads 0.
+        buf, offset = locate(address, width, bool(kind & FETCH))
         if buf is None:
             return 0
         return int.from_bytes(buf[offset : offset + (width >> 3)], "big")

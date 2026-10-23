@@ -67,56 +67,78 @@ class CoreMixin:
     # -- stepping -----------------------------------------------------------------
 
     def step(self) -> int:
-        """Run one instruction or one exception sequence; return the states it took."""
+        """Run one instruction or one exception sequence; return the states it took.
+
+        The states are those the pipeline's cursor moved (pipeline.py): over a run they
+        add up to PM 7.3's count, the intervals between EX stages.
+        """
         start = self.clock
+        if self.pc != self._p_pc:
+            # The host moved the PC (a test, a replay's resync): the pipeline's fetches
+            # were for the old stream.
+            self._pipeline_restart()
         if start >= self._next_event:
             self._service_events()
         if self.dmac.active:
             self.dmac.run()
+            if self.clock != start:
+                # The DMAC's cycles held the bus: the CPU's slots wait for them.
+                self._p_start += self.clock - start
         target = self.delay_target
         if target < 0:
             if self._address_error:
                 self._address_error = False
                 self._exception(VECTOR_ADDRESS_ERROR, self.pc, -1, "address_error")
+                self._p_pc = self.pc
                 return self.clock - start
             if self.nmi != self._nmi_seen:
                 self._nmi_edge()
             if not self._no_interrupt and self._interrupt_due():
                 self._take_interrupt()
+                self._p_pc = self.pc
                 return self.clock - start
             self._no_interrupt = False
             if self.sleeping:
                 # SLEEP: the CPU waits for an interrupt (HM 14.3.1). Idle in short
-                # slices so the board can raise IRL between them.
-                idle = min(max(self._next_event - start, 1), 16)
-                self.clock = start + idle
-                return idle
+                # slices so the board can raise IRL between them; the pipeline waits.
+                idle = min(max(self._next_event - self.clock, 1), 16)
+                self._p_start += idle
+                self.clock = self._p_start
+                return self.clock - start
             pc = self.pc
             if pc & 1 or pc >= 0xFFFFFE00:
                 # An odd address, or a fetch from on-chip module space (HM table 4.6):
-                # nothing is fetched; the saved PC is that address (HM 4.3.2).
+                # nothing is executed; the saved PC is that address (HM 4.3.2).
                 self._exception(VECTOR_ADDRESS_ERROR, pc, -1, "address_error")
+                self._p_pc = self.pc
                 return self.clock - start
-            op = self._fetch(pc)
+            self._advance(self._p_next_ex - 1)  # through this instruction's IF
+            op = self._opcode(pc)
             self.pc = pc + 2
+            plan = self._plans[op]
+            self._issue(plan, self._load_dest[op], self._uses[op], pc)
             self._table[op](self, op)
+            self._retire(plan, pc + 2)
             self._no_interrupt = self._blocks_interrupt[op]
         else:
             # The delay slot (HM 4.6.1: no interrupt or address error between it and
             # its branch).
             pc = self.pc
-            op = self._fetch(pc)
+            self._advance(self._p_next_ex - 1)
+            op = self._opcode(pc)
             self.delay_target = -1
             if self._slot_illegal[op]:
                 # HM 4.5.3: decoded in the slot; the saved PC is the branch target.
                 self._exception(VECTOR_SLOT_ILLEGAL, target, -1, "illegal")
+                self._p_pc = self.pc
                 return self.clock - start
             self.pc = target
+            plan = self._plans[op]
+            self._issue(plan, self._load_dest[op], self._uses[op], pc)
             self._table[op](self, op)
+            self._retire(plan, target)
             self._no_interrupt = self._blocks_interrupt[op]
-            self._ibuf_line = -1  # the target's fetch starts a new line (PM 7.7.5)
-        self.clock += self._base_states[op] + self._extra
-        self._extra = 0
+        self._p_pc = self.pc
         return self.clock - start
 
     def _service_events(self) -> None:
@@ -129,7 +151,10 @@ class CoreMixin:
         self._next_event = min(self.frt.next_event(), self.wdt.next_event())
 
     def _stall(self, states: int) -> None:
-        """A module extends the current access by ``states`` (the DIVU, HM 10.4.1)."""
+        """A module extends the current access by ``states`` (the DIVU, HM 10.4.1).
+
+        The access's MA lasts until the clock it leaves (pipeline.py ``_ma_close``).
+        """
         self.clock += states
 
     # -- interrupts -----------------------------------------------------------------
@@ -161,22 +186,23 @@ class CoreMixin:
             level, vector = self._injected
             self._injected = None
             if vector < 0:
-                vector = self._irl_vector(level)
-            self._exception(vector, self.pc, level, "interrupt")
+                self._irl_exception(level)
+            else:
+                self._exception(vector, self.pc, level, "interrupt")
             return
         irl = self.irl
         if irl >= self._onchip_level:
             # IRL ranks above an on-chip source at the same level (HM table 5.4).
-            self._exception(self._irl_vector(irl), self.pc, irl, "interrupt")
+            self._irl_exception(irl)
         else:
             self._exception(self._onchip_vector, self.pc, self._onchip_level, "interrupt")
 
-    def _irl_vector(self, level: int) -> int:
+    def _irl_exception(self, level: int) -> None:
+        """An IRL interrupt: its auto-vector (HM table 5.3), or the bus's (ICR.VECMD = 1)."""
         if self.intc.vecmd:
-            # External vector mode: A3-A0 carry the level, D7-D0 the vector number
-            # (HM 5.2.3, figure 5.4).
-            return self._bus_read(level, 8, VECTOR) & 0x7F
-        return IRL_VECTOR_BASE + (level >> 1)
+            self._exception(0, self.pc, level, "interrupt", external=level)
+        else:
+            self._exception(IRL_VECTOR_BASE + (level >> 1), self.pc, level, "interrupt")
 
     def inject_interrupt(self, level: int, vector: int = -1) -> None:
         """Replay only: make the next boundary accept this interrupt.
@@ -190,17 +216,28 @@ class CoreMixin:
         """
         self._injected = (level, vector)
 
-    def _exception(self, vector: int, saved_pc: int, level: int, sequence: str) -> None:
-        """An exception sequence: :meth:`_enter` plus its states (pipeline.EXCEPTIONS)."""
-        self._enter(vector, saved_pc, level)
-        self.clock += self._exception_states[sequence] + self._extra
-        self._extra = 0
+    def _exception(
+        self, vector: int, saved_pc: int, level: int, sequence: str, external: int = -1
+    ) -> None:
+        """An exception sequence in place of the next instruction (PM 7.7.7).
 
-    def _enter(self, vector: int, saved_pc: int, level: int) -> None:
+        It takes the slots of PM figures 7.95-7.97 (``pipeline.PLANS[sequence]``): its
+        two pushes and the vector read are its MAs, and the handler's fetch is in the
+        slot of its last stage.
+        """
+        plan = self._exception_plans[sequence]
+        self._advance(self._p_next_ex - 1)
+        self._issue(plan, 0, 0, self.pc)
+        self._enter(vector, saved_pc, level, external)
+        self._retire(plan, -1)
+
+    def _enter(self, vector: int, saved_pc: int, level: int, external: int = -1) -> None:
         """Exception entry (HM 4.3.2-4.5): push SR, push PC, fetch the vector, jump.
 
         ``level`` >= 0 is written to SR.I3-I0 (interrupts; HM 4.4.3), -1 leaves it.
-        The jump is not a delayed branch.
+        ``external`` >= 0 is an IRL level whose vector number comes from the bus
+        (ICR.VECMD = 1, HM 5.2.3): that read is made in the vector-read MA, before the
+        table read. The jump is not a delayed branch.
         """
         R = self.R
         sr = self.sr
@@ -210,35 +247,27 @@ class CoreMixin:
         self._write32(R[15], saved_pc)
         if level >= 0:
             self.sr = (sr & ~0xF0) | (level << 4)
+        if external >= 0:
+            if self._p_ma_left:
+                self._ma_next()
+            # External vector mode: A3-A0 carry the level, D7-D0 the vector number
+            # (HM 5.2.3, figure 5.4).
+            vector = self._bus_read(external, 8, VECTOR) & 0x7F
         self.pc = self._read32((self.vbr + (vector << 2)) & M32)
         self.delay_target = -1
-        self._ibuf_line = -1
         self._no_interrupt = False
         self._address_error = False
 
     def _illegal(self, op: int) -> None:
         """Undefined code outside a slot: general illegal instruction (HM 4.5.4).
 
-        The saved PC is the start address of the undefined code. Undefined codes have
-        no table states; the exception sequence charges its own.
+        The saved PC is the start address of the undefined code. Undefined codes carry
+        the illegal sequence's plan in the decode tables (PM figure 7.97), so the step
+        has already given it its slots; this only enters the handler.
         """
-        self._exception(VECTOR_ILLEGAL, (self.pc - 2) & M32, -1, "illegal")
+        self._enter(VECTOR_ILLEGAL, (self.pc - 2) & M32, -1)
 
     # -- instruction fetch ------------------------------------------------------------
-
-    def _fetch(self, pc: int) -> int:
-        """The 16-bit instruction at ``pc``.
-
-        "SH-2 always fetches instructions with a long word" (PM 7.7.5 note; HM 7.11.2
-        for cache-through space): fetching the instruction at 4n also brings the one at
-        4n + 2, which then costs no fetch of its own (PM 7.4, written ``if``). The
-        fetched longword is kept until execution leaves it or a branch restarts IF.
-        """
-        line = pc & ~3
-        if line != self._ibuf_line:
-            self._ibuf = self._read_fetch(line)
-            self._ibuf_line = line
-        return (self._ibuf & 0xFFFF) if pc & 2 else (self._ibuf >> 16)
 
     def _read_fetch(self, address: int) -> int:
         space = address >> 29
@@ -254,8 +283,10 @@ class CoreMixin:
             return self._bus_read(address, 32, FETCH | THROUGH)
         if space == 6:
             return self.cache.get(address & 0xFFC, 32)
-        # The purge, address-array and reserved spaces hold no code; read them as data.
-        return self._read32(address)
+        # The purge, address-array, reserved and on-chip spaces hold no code: a fetch
+        # there (an overrun past the end of code, or a jump into them, which faults
+        # when it executes, HM table 4.6) reads nothing and touches no module.
+        return 0
 
     # -- CPU data accesses ------------------------------------------------------------
 
@@ -290,6 +321,8 @@ class CoreMixin:
         self._write(address, 32, value & M32)
 
     def _read(self, address: int, width: int) -> int:
+        if self._p_ma_left:
+            self._ma_next()  # this access is the instruction's next MA (pipeline.py)
         space = address >> 29
         if space == 0:
             if self.cache.enabled:
@@ -319,6 +352,8 @@ class CoreMixin:
         return 0  # H'80000000-H'9FFFFFFF: reserved (HM table 7.3)
 
     def _write(self, address: int, width: int, value: int) -> None:
+        if self._p_ma_left:
+            self._ma_next()
         space = address >> 29
         if space == 0:
             if self.observe is not None:
@@ -388,9 +423,9 @@ class CoreMixin:
     def _cycle_read(self, address: int, width: int, kind: int, area: int) -> int:
         self.wait = 0
         value = self.read(address, width, kind) & WIDTH_MASK[width]
-        # Rung 0-2 timing: the cycle's states beyond the one the tables assume.
-        cost = self._cycle_states[area] - 1 + self.wait
-        self.clock += cost
+        # The cycle lasts the BSC's states plus the board's WAIT states; the IF or MA
+        # that made it lasts as long as its cycles (PM 7.2.3).
+        self.clock += self._cycle_states[area] + self.wait
         return value
 
     def _bus_write(self, address: int, width: int, value: int, kind: int) -> None:
@@ -410,7 +445,7 @@ class CoreMixin:
     def _cycle_write(self, address: int, width: int, value: int, kind: int, area: int) -> None:
         self.wait = 0
         self.write(address, width, value, kind)
-        self.clock += self._cycle_states[area] - 1 + self.wait
+        self.clock += self._cycle_states[area] + self.wait
 
     # -- on-chip modules -----------------------------------------------------------------
 
