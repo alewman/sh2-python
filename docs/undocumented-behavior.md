@@ -1,7 +1,7 @@
 # Undocumented behaviour, open items, and where sources contradict
 
-Items **U1–U21** are behaviours the manuals leave unsaid, ambiguous, or say
-only in passing, that a core must still decide. **C1–C19** are places where
+Items **U1–U22** are behaviours the manuals leave unsaid, ambiguous, or say
+only in passing, that a core must still decide. **C1–C20** are places where
 sources contradict each other. Each says what is known, from which tier, and
 what the build should do; "open" means nothing above emulator tier settles it.
 Source names as in [start-here.md](start-here.md).
@@ -117,6 +117,22 @@ not replicated on a 32X or Saturn. **Build**: model the CCR write as a write
 through the BSC's write buffer, so it completes after a pending store, and
 let hits proceed meanwhile; rung 4 checks DN's eight values.
 
+**Built at rung 4** (`cache.py` `write8`, `_core.py` `_settle_ccr`): a CCR write made
+while the write buffer holds an external write is kept and lands when that write's
+cycles end; the CPU goes on and its cache hits use the old lines; a miss waits for the
+write and so lands the CCR write before its fill. With P2's routines rebuilt at P2's
+addresses (validation/rung4/dn.py) the core gives DN's eight values exactly, and an
+immediate purge on the same code gives the emulators' pattern DN predicted (1111 and
+1122 on every repetition): tests/test_rung4.py. The values do not depend on the
+CPS3-like bus's speed (1 to 4 board waits on work RAM give the same eight), but they
+depend on where P2's literals sit: the CCR-address load right after the store hits
+only because the load of U filled the same line before the store (DN: "inspect the
+emitted instructions and alignment"); the rebuild matches P2's instruction map.
+Test 187 (the stale fetch that trapped at H'0202AA00) is **not** reproduced by the
+rebuild: there the purge lands before the call's fetch unless a work-RAM word write
+takes 6 states or more; P2's routine (24 instructions, five literals) is not
+published, and DN calls the trap's explanation an inference. Open.
+
 ## U10 — Associative purge space read; the reserved spaces
 
 HM describes only writes to $40000000–. Mednafen treats a **read** there as a
@@ -133,7 +149,7 @@ cache area those fetches can miss and fill lines; in cache-through space they
 are bus cycles the board sees. MAME fetches only what executes
 (`sh2.cpp` `execute_run`); the other emulators were not checked. **Build**: make them,
 per PM; it changes cache contents and bus timing, and the 32xspd and DN loops
-can only be matched with them (rung 4). **Built at rung 3** (decided by Aubrey: always
+were expected to need them (rung 4 found one DN loop that does, below). **Built at rung 3** (decided by Aubrey: always
 on): the scheduler places every fetch PM's figures draw, discarded ones included —
 taken `BT`/`BF` (two, figure 7.78), taken `BT/S`/`BF/S` (one after the slot, figure
 7.80; C13), TRAPA and illegal instructions (two, figures 7.93, 7.97; U21), interrupts
@@ -144,6 +160,12 @@ new longword; tests/test_pipeline.py `test_overrun_fetches_reach_the_bus`,
 ahead of execution, as figure 7.1 draws: a store to the next two instructions'
 addresses does not change what runs (the hardware's behaviour, if PM's pipeline is
 right; MAME executes the new code).
+
+Rung 4 (hardware, a CPS3): every P2 loop closes with a taken `BF`. With the two fetches
+it discards removed, one CPU-resident loop leaves the board's warm samples
+(p1_02_ramrd_l, eight cached loads a pass, where a discarded fetch meets the last
+load's MA); the other 66 are unchanged. Modest support for the overrun fetches, one
+loop deep; 32xspd's `BF/S` loop does not show them (C13).
 
 ## U12 — DIVU overflow results
 
@@ -240,6 +262,24 @@ well depends on the instruction that was to be executed." Undefined code has no
 "instruction that was to be executed". **Build**: both, as TRAPA (figure 7.93, the
 same nine stages); for a slot illegal, the branch target's fetch (already made in the
 slot's ID) and the one after it. Choice, manual-silent; it changes one overrun fetch.
+
+## U22 — The write buffer's timing (HM 7.11.2)
+
+HM 7.11.2: "the bus state controller has one level of write buffer"; a write is
+reported complete to the CPU "without waiting for the actual writing ... to end" when
+the internal bus is free; "During reads, the CPU always has to wait for the end of the
+operation"; on-chip module accesses need not wait for a buffered external write. HM
+does not say how many states the CPU spends handing a write over, when exactly a
+second write is taken, or how a DMA write uses the buffer beyond the dual-address rule.
+**Build (rung 4)**: a CPU write's access (its MA) lasts until the buffer is empty plus
+one state; the buffered write's cycles start in the state the buffer takes it; a
+second write and every external read (cache-through, fill, fetch miss, DMA read) wait
+until the cycles end; on-chip accesses never wait (CCR aside, U9); DMA writes are not
+buffered (their cycles hold the bus, rung 5). DN's store-overlap loops (hardware, a
+CPS3, bus-crossing: detector) have this shape: a long store with 0 or 2 independent
+ADDs after it costs the same per group, 8.00 on the core's CPS3-like bus and 8.46 on
+the board, and with 8 ADDs 10.00 and 10.14, where the CPU's own instructions take
+over (validation.md "What ran, rung 4").
 
 ## Contradictions
 
@@ -357,6 +397,12 @@ unconditional one does not. It matters only when the branch's EX slot holds an M
 (the extra fetch splits it) or the fetch is slow or opens a new cache line.
 tests/test_pipeline.py figures 7.80, 7.82.
 
+Rung 4 does not decide it. 32xspd's cached-read loop ends in a taken `BF/S`, but its EX
+slot holds no MA and the discarded fetch is a one-state cache hit: the loop takes 11
+states with the fetch and without it (checked by removing it). No DN loop uses `BT/S`
+or `BF/S`. **Open**; a cold or cache-through `BF/S` loop timed on hardware would decide
+it.
+
 ### C14 — Figures 7.4-7.6 draw a bus fetch for every instruction
 
 PM figures 7.5 and 7.6 give each consecutive instruction its own bus fetch (7.5:
@@ -429,3 +475,25 @@ PM everywhere the scheduler was checked except two places:
 **Build**: PM, the SH-1/SH-2 manual (SH7604 is an SH-2). Open: DN's CPS3 loops (rung
 4) include stores after loads and could show the forwarding; a hardware result
 there would decide it.
+
+Rung 4 does not decide it. The only P2 loops that store a just-loaded register are the
+copy loops (`MOV.L @R12+,R0` then `MOV.L R0,@R13`), and their stores go to the CPS3's
+work RAM: each waits for the write buffer, which hides the one state the split costs.
+Run with SWM's forwarding instead of PM's split, ten of the twelve copy loops give the
+same totals and the other two differ by 2-3% in loops the core misses by 20-30% for
+bus reasons (detectors). **Still PM**; deciding it needs a load-then-store loop that
+stays off the external bus, timed on hardware: a store to the data array (H'C0000000-,
+the cache bus only, HM 8.4.8) of the register a cached load just wrote.
+
+### C20 — HM 7.11.2 says on-chip accesses do not wait for a buffered write; DN's CCR does
+
+HM 7.11.2: "After a write has been performed to low-speed memory off the chip,
+performing a read or write with an on-chip peripheral module enables an access to the
+on-chip peripheral module without having to wait for the completion of the write". CCR
+is an on-chip register (H'FFFFFE92). DN's eight purge-order values (hardware, a CPS3)
+fit only a CCR write that takes effect after the buffered store (U9); an immediate one
+gives a different pattern. The two can both hold if the CPU's CCR write itself does not
+wait (the CPU goes on, as HM says) but the purge it requests is ordered behind the
+buffered write. **Build**: that (U9): every other on-chip access follows HM; CCR's
+effect is ordered behind a buffered external write. Hardware-captured on one board,
+the judge for purge ordering (decision 7).

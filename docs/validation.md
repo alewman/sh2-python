@@ -76,6 +76,9 @@ Two properties of this core's evidence decide how the rungs are built:
 - Caveats, the author's: "not measurements of either console", mechanisms "may
   transfer to related parts", no associative-purge test, the fitted timing
   model's states "are not independently measured latencies". Not replicated.
+- Ran here: rung 4 ("What ran, rung 4"). The companion's program image is not
+  published; its loop texts, routine addresses and instruction map are, and
+  `validation/rung4/dn_p2.json` carries what rung 4 uses of them (with attribution).
 
 ### 32xspd and its photograph — hardware-captured, aggregate
 
@@ -88,7 +91,8 @@ Two properties of this core's evidence decide how the rungs are built:
 - Ran here: **MAME 0.285 shows a black screen for 32xspd** after 30 and 120
   emulated seconds (a commercial cartridge, BC Racers, snapshots correctly
   with the same command), so MAME cannot be compared with the photograph.
-  jgenesis runs it (#493's screenshots).
+  jgenesis runs it (#493's screenshots). The core runs its cached-read loop at 11
+  states an iteration (rung 4).
 
 ### Sega 32X technical bulletins and the 32XDK wiki — manual / research
 
@@ -456,3 +460,152 @@ not fast).
 | 7.95 | Interrupt exception processing | `test_figure[7.95]` | as drawn | reproduced |  |
 | 7.96 | Address error exception processing | `test_figure[7.96]` | as drawn | reproduced |  |
 | 7.97 | Illegal instruction exception processing | `test_figure[7.97]` | as drawn | reproduced |  |
+
+## What ran, rung 4 (2026-10-23)
+
+### Rung 4 — passed (hardware-captured): DN's purge order exactly, DN's CPU-resident loops, 32xspd's 11 states
+
+Three targets, each the judge for what stays inside the CPU and its cache (decision 7:
+one CPS3 board, one author, not replicated, not a 32X or Saturn; and one photograph of
+one 32X). What crosses the CPS3's bus is reported as a detector.
+
+**What the core gained.** The BSC's one-level write buffer (HM 7.11.2; timing.md "The
+scheduler"; U22): a store lasts until the buffer is empty plus one state and its
+cycles run behind the CPU; a second store and every external read wait for them; cache
+hits and on-chip accesses do not. A CCR write that finds a store buffered lands when
+the store's cycles end, cache hits using the old lines meanwhile (U9; C20 records that
+HM 7.11.2 says on-chip writes do not wait). Nothing else: the CPU-resident loops
+needed no change to rung 3's scheduler, and no constant in the core was fitted. Every
+rung-3 figure test still passes.
+
+**How DN's loops were rebuilt** (`validation/rung4/dn.py`, its docstring has the
+detail):
+
+- The 185 P2 routines are assembled from their published text by
+  `validation/rung4/sh2asm.py` (no SH toolchain here: every encoding is looked up in
+  the PM-generated decode table, branches and literal loads encoded from PM's
+  patterns, each instruction disassembled back), at P2's own addresses. P2's eight
+  framing instructions are not published; each routine has three before its prologue
+  and five after its epilogue whatever its trip count, the `JSR` bodies need PR
+  saved, and P1's structural counts give two loop instructions at four clocks an
+  iteration, so the framing is `STS.L PR,@-R15`, two unknown (NOP here), and `DT R1`,
+  `BF`, `LDS.L @R15+,PR`, `RTS`, `NOP`. All 185 rebuilt routines put every
+  instruction and literal on exactly the halfwords the probe's instruction list marks
+  (`test_every_p2_routine_rebuilds_where_p2_put_it`), which pins each body
+  instruction's longword alignment, on which the MA/IF rule depends.
+- The CPS3-like bus: DP's BCR1 = H'0020, BCR2 = H'00E8, WCR = H'AA57 written through
+  the BSC as software does (the core's defaults are untouched), area 0 eight bits
+  wide, work RAM at H'02000000 (area 1, 16 bits), flash at H'06000000 (area 3, 32
+  bits), and board waits from DP table 6 (area 1 one, area 3 two). It matters only to
+  cold samples and bus-crossing loops.
+- The runner is not published. Here it is a `JSR @R12; NOP` returning to H'06704840
+  (where the companion's model stops P2's runner) and a stack in a cache set no loop
+  fills; at P2CPUS's own address (set 0) the call pushed out the stride-1,024 conflict
+  loops' data, which the board's runner evidently does not. Its cost is one constant,
+  **R = 9 clocks**, fitted to the three empty loops (tests 0, 40, 61: any R from 6 to
+  12 fits all three); every other loop is a prediction.
+- A warm window of T clocks reads as floor(T/8) or ceil(T/8) ticks depending on the
+  FRT's phase; it matches DN's four warm samples when each is one of the two.
+- CPU-resident: the core's warm window makes no external cycle but the framing's PR
+  push. 68 loops are; 92 cross the bus; 25 use CPS3 devices or FRT register timing
+  the harness does not model and were not run (tests 14-25, 35, 36, 100-102, 169-176).
+
+**Results: CPU-resident, 67 of 68 inside DN's warm samples**, every one within 0.63
+ticks of the board's mean (`pytest -m slow tests/test_rung4.py`; a 25-loop subset
+in the normal suite):
+
+| Group | Loops | Inside the warm samples |
+| --- | ---: | ---: |
+| P1's loops, cached (ALU, cached load, the three multiplies, DIV1, BRA, BT not taken, JSR, literal pool, stack read) | 13 | 13 |
+| Empty and ADD-only controls (64 and 256 iterations, 0/2/8 ADDs) | 6 | 6 |
+| Load and consume, byte/word/long, 0/1/4 ADDs between | 9 | 9 |
+| Multiply issue and result (MUL.L, MULS.W, DMULS.L; 0/1/3 ADDs; result read or not) | 18 | 18 |
+| Cache hits: four-way and two-way, spread and same-set below the cliff | 18 | 17 |
+| Instruction capacity, 128 and 1,024 bytes, four-way and two-way | 4 | 4 |
+
+| Loop | Board, warm (ticks) | Core (ticks) |
+| --- | --- | ---: |
+| load_use_b_g0 | 899 | 898.88 |
+| load_use_w_g1 | 1,026-1,027 | 1,026.88 |
+| load_use_l_g4 | 1,922-1,923 | 1,922.88 |
+| mul_mul_l_g0_c0 | 1,091 | 1,091.25 |
+| mul_mul_l_g0_c1 | 2,307 | 2,307.12 |
+| mul_mul_l_g1_c1 | 2,435 | 2,435.12 |
+| mul_mul_l_g3_c1 | 2,435 | 2,435.12 |
+| mul_muls_w_g0_c0 | 611 | 611.12 |
+| mul_muls_w_g1_c0 | 899 | 899.12 |
+| mul_muls_w_g3_c0 | 1,411 | 1,411.12 |
+| mul_muls_w_g3_c1 | 1,923 | 1,923.12 |
+| p1_02_ramrd_l (cached loads) | 2,050-2,051 | 2,050.62 |
+| p1_32_jsr4 | 3,586-3,587 | 3,586.62 |
+
+The miss, **cache_m9_s16_d3** (two-way mode, three lines in neighbouring sets): the
+board reads 359-360, the core 355.0; every warm sample on the board is 4.5 ticks over,
+which is one work-RAM line fill (P1: 35.97 clocks), so the board's warm sample took
+one miss the rebuilt working set does not (its runner, stack and timer read are not
+published). Its neighbours with one line fewer and more (d = 2, 4, 5, 6) match. Not
+fitted away: recorded in the test (`WORKING_SET`) with that explanation.
+
+The gate discriminates: with the load-use split removed 58 of the 68 match, with no
+MA/IF split on cache-hit fetches 46, with the multiplier's `mm` at 0 56 (the runner
+constant refitted each time).
+
+**Bus-crossing loops (detector).** 3 of 92 inside the samples; the core is faster on
+nearly all, by up to 31%, because the CPS3-like bus is simpler than the CPS3's (a
+work-RAM line fill 31 clocks here against 35.7-35.9; a cache-through long read 8 plus
+nothing against 10.60; the cache-through read's extra cycle and the CPS3's DRAM
+timing are not modelled). What they show of the CPU is shape. Store overlap (DN
+section 3: clocks per group of one cache-through store and g independent ADDs, the
+slope between 64 and 256 iterations):
+
+| Store | g = 0 | g = 2 | g = 8 |
+| --- | --- | --- | --- |
+| Long: board / core | 8.46 / 8.00 | 8.46 / 8.00 | 10.14 / 10.00 |
+| Word: board / core | 4.23 / 4.12 | 4.59 / 4.38 | 10.01 / 10.00 |
+| Byte: board / core | 4.22 / 4.12 | 4.59 / 4.38 | 10.00 / 10.00 |
+
+Flat from g = 0 to g = 2 for a long store, the instructions running behind the
+buffered write, then the CPU's own count at g = 8; the remaining difference is the
+CPS3's write time (8.46 against the 8 states of two 4-state transfers here). Before
+the write buffer, P1's push-and-pop loop (p1_37_pushpop) read 6,018 ticks on the core
+against the board's 4,332; with it, 4,099.
+
+**DN's purge-order values: exact.** Tests 185 and 186 rebuilt at P2's addresses (DN's
+compact body plus the push and pop of R8 that make P2's routines two instructions
+longer, matching P2's instruction map, so every literal sits where P2's did), four
+repetitions each, the cache kept between them: 1111, 1122, 2222, 2222 and 2222 ×4,
+DN's eight. With an immediate purge the same code gives 1111 ×4 and 1122 ×4, the
+pattern DN predicted for the emulators (`test_an_immediate_purge_gives_the_emulators_pattern_instead`).
+The eight do not depend on the bus's speed (1 to 4 board waits on work RAM). Test 187
+(the stale fetch that trapped at H'0202AA00) is **not** reproduced: in the rebuild the
+purge lands before the call's fetch unless a work-RAM word write takes 6 states or
+more, and P2's 24-instruction routine is not published (U9). Open.
+
+**32xspd: 11 states an iteration.** The loop from the ROM (file offset H'10B0, run at
+H'020010B0 in the cartridge area; its R1 = H'06010000 in SDRAM and R0 = 512 from its
+literal pool) on the core with the cache on: 11, 11, 11, ... once warm
+(`test_32xspd_cached_read_loop_is_11_states_per_iteration`; the opcodes are checked
+against the ROM when it is fetched). The photograph bounds it from above at 11.31
+(timing.md). What was assumed of the 32X: the cache is on and four-way (32xspd writes
+no CCR, so the 32X boot ROM's setting is relied on; boot ROMs are not fetched here);
+once warm nothing leaves the cache, so cartridge, SDRAM and arbitration timing do not
+enter; no interrupt is taken inside a batch (one would only lower the photograph's
+rate).
+
+**Rulings.** C3 and U9: built as DN, confirmed by the eight values. C13 (does a taken
+`BT/S`/`BF/S` fetch past its slot?): not decided; 32xspd's `BF/S` loop takes 11 states
+with the discarded fetch and without it (its EX slot holds no MA and the fetch is a
+cache hit), and no DN loop uses a delayed conditional branch. C19 (SWM's forwarding of
+a just-loaded register to a store): not decided; only P2's copy loops store a
+just-loaded register and their stores wait for the write buffer, which hides the
+split (ten of twelve give the same totals either way; the other two differ by 3% in
+loops the core misses by 30% for bus reasons). Both stay as built (PM). New: U22 (the
+write buffer's timing), C20 (HM 7.11.2 against DN on CCR).
+
+**The earlier gates with the write buffer in place.** Fast tests 572 on CPython 3.14
+and PyPy 3.11 (559 before + 13 in test_rung4.py); ruff clean. Rung 1: all 16,600
+cases (`pytest -m slow tests/test_rung1.py`, PyPy, 18 s at load ~41). Rung 2: the change is timing-only for
+the gate replays, which hold the cache off and take time-dependent on-chip values,
+DMA writes and interrupts from MAME's trace, so no state the core computes there
+depends on when a cycle happens; they were not rerun (`python validation/rung2/replay.py
+tests/mame_traces/bus-<cart>/master.log` reruns one).

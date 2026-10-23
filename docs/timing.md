@@ -139,10 +139,12 @@ occupancy and a result deadline five or six clocks after issue, depending on
 fetch alignment" and says those fitted states "are not independently measured
 latencies". Tom Forsyth's recollection (32XDK wiki, Bugs-and-quirks) — "one
 multiply cost 3 clocks, but if you started a second multiply it only cost 2
-clocks more" — is anecdote, not measurement. The build session turns these
-into a rung (validation.md rung 4): the core's PM model must reproduce DP's
-CPU-resident loop totals once the loop bodies in `probe_build_info.json` are
-re-assembled.
+clocks more" — is anecdote, not measurement. Rung 4 (validation.md) rebuilt
+these loops from `probe_build_info.json`: PM's model as the scheduler runs it (4 `mm`
+for `MUL.L`/`DMULS.L`, 2 for `MULS.W`, `STS MACL` waiting for them, the next
+multiplier MA extended) lands all eighteen inside the board's warm samples, within a
+quarter of a tick, with no multiplier parameter fitted: DP's fitted "result
+deadline" is not needed beyond what PM's figures already draw.
 
 ### Branches (PM 7.7.5)
 
@@ -195,6 +197,13 @@ of section 7 reproduced state for state, tests/test_pipeline.py; validation.md "
   the overrun fetches PM draws (U11, C13, U21). Each IF and MA lasts the cycles it
   makes: a cache hit or `if` 1 state, an external cycle the BSC's states plus the
   board's `chip.wait`, a line fill its four cycles, a DIVU access its stall.
+- **The write buffer** (rung 4; HM 7.11.2, U22). A store to external memory lasts
+  until the BSC's one-level buffer is empty, plus one state; its cycles then run
+  behind the CPU (the callbacks see `chip.clock` at each cycle's start). A second
+  store, and any external read (a cache-through read, a line fill, a fetch that
+  misses, a DMA read), waits for them to end; cache hits and on-chip accesses do
+  not. A CCR write that finds a store buffered lands when the store's cycles end,
+  cache hits using the old lines meanwhile (U9, C20).
 - **Clock.** `chip.clock` inside a callback is the state the cycle starts on: an MA
   at its slot's start, a fetch after the MA when they split. Between steps it is the
   start of the scheduler's cursor (the last instruction's last MA, or its EX), so
@@ -203,11 +212,13 @@ of section 7 reproduced state for state, tests/test_pipeline.py; validation.md "
 
 Simplified or not yet modelled (later rungs; each changes timing only):
 
-- **The write buffer** (HM 7.11.2): a store's MA lasts its whole external cycle; the
-  hardware lets the CPU go on once the buffer takes it. DN's store-overlap loop (rung
-  4) measures this.
+- **DMA writes** are not buffered: their cycles hold the bus until they end (HM
+  7.11.2's dual-address rule is rung 5's).
 - **Cache-through reads' extra cycle** "to determine the cycle" (HM 7.11.2) and a
-  line fill's tag-check state are not added; a fill lasts its four cycles.
+  line fill's tag-check state are not added; a fill lasts its four cycles. No
+  CPU-resident hardware number needs them (rung 4); DP's flash numbers fit the extra
+  cycle (a cache-through long read 6.01 clocks against a 5-clock transfer in a
+  20.06-clock fill, DP table 6), but they cross the CPS3's bus (a detector).
 - **On-chip module registers** take one state (plus the DIVU's stall), not TB #32's
   3/4/11.
 - **DMA** cycles made at a step boundary delay the CPU's slots by their length (the
@@ -258,14 +269,22 @@ Measured (hardware):
 - 32xspd on a real 32X (photograph): cached read 31,840 KB/s, SDRAM read
   16,304, ROM read 4,704, sparse SDRAM read 6,992, sparse ROM read 1,328,
   sparse SDRAM uncached 7,008, sparse ROM uncached 4,800, SDRAM write 26,608,
-  VRAM write 8,752. The cached-read figure is CPU-only (pipeline + cache hits);
+  VRAM write 8,752, SDRAM-VRAM copy 7,728, ROM-VRAM copy 3,552. The cached-read
+  figure is CPU-only (pipeline + cache hits);
   the rest mix in the 32X's SDRAM, cartridge and VDP timing (the board's).
   32XDK wiki: the cached-read loop (four `MOV.L @(n,R1)` loads, then
   `ADD`, `CMP/EQ`, `BF/S`, `ADD` in the slot) "takes 11 cycles per iteration"
   when everything is cached. 31,840 KB/s × 1,024 / 16 bytes per iteration ×
   11 = 22.4 M clocks per second (taking KB as 1,024 bytes), within 3% of
   23.01 MHz: consistent. The 11 is 8 instructions + 1 for the taken `BF/S` + 2
-  for MA/IF splits, jsgroth's account in jgenesis #493.
+  for MA/IF splits, jsgroth's account in jgenesis #493. The photograph also bounds it
+  from above: 32xspd's result is batches of 512 iterations counted over 30 frames,
+  times 16 (its code at file offset H'10A0-H'10D6), so 31,840 KB/s is 1,990 batches,
+  5,789 clocks a batch at 23.01136 MHz and 59.92 frames a second: at most 11.31
+  states an iteration, 157 left a batch for the outer loop at 11.
+- On the core (rung 4): the loop, extracted from the ROM, runs at 11 states an
+  iteration with the cache warm (tests/test_rung4.py); two MA/IF splits (the loads at
+  H'10B6 and H'10BA meet the IFs of H'10BC and H'10C0) and the taken `BF/S`'s one.
 
 Where sources disagree: the refill order (C2) and the purge's timing (C3).
 
@@ -303,7 +322,10 @@ The board owns what is outside the pins; the BSC owns the shape of each cycle.
   the internal bus takes it; a read waits for any pending write; a dummy read
   of the same address waits for the write to finish. DN measured a
   cache-through long store overlapping two independent `ADD`s at no cost
-  (8.46 clocks per group for g = 0 and g = 2) on the CPS3.
+  (8.46 clocks per group for g = 0 and g = 2) on the CPS3. Built at rung 4
+  ("The scheduler", U22): on the CPS3-like bus the core gives 8.00 for both, and
+  10.00 against 10.14 with eight `ADD`s; byte and word stores 4.12, 4.38, 10.00
+  against 4.22, 4.59, 10.00 (the difference is the CPS3's write time).
 - **Arbitration** (HM 7.10): master mode holds the bus and grants it on
   request; slave mode requests it for each external access; partial-share
   master shares only CS2. The 32X's slave SH-2 "will temporarily stall if they

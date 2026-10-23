@@ -10,18 +10,23 @@ the CPU (the same call that put the 2A03's sound and DMA into 6502-python).
 The boards, [sega32x-python](../sega32x-python) first and Saturn/ST-V later,
 own everything outside the package.
 
-**Status (2026-10-23): rungs 0-3 pass; stopped for review before rung 4.**
+**Status (2026-10-23): rungs 0-4 pass; stopped for review before rung 5.**
 `src/sh2_python` is the SH7604: the SH-2 CPU (all 142 forms, delay slots,
 exceptions, interrupts) with the cache, BSC, INTC, DMAC, DIVU, FRT (FTOA), WDT,
 SCI and power-down as modules beside it (the UBC is a register map only), and the
 tooling (`debug.py`, `trace.py`, `console.py`, `python -m sh2_python`). Timing is
 PM section 7's pipeline: a stage scheduler (`pipeline.py`) with IF/MA splits,
-load-use, the multiplier's `mm`, branch and exception overrun fetches, and bus
-waits stretching the stage that owns the cycle.
+load-use, the multiplier's `mm`, branch and exception overrun fetches, bus waits
+stretching the stage that owns the cycle, and the BSC's one-level write buffer
+(HM 7.11.2) with a CCR purge that waits behind a buffered store (U9).
 What passed, with numbers, is in [docs/validation.md](docs/validation.md) ("What
 ran"): the decode table from PM appendix A against MAME's and jgenesis' decoders;
 16,600 generated cases agreed by MAME and jgenesis or ruled from the manuals; 129 M instructions of four 32X games replayed register-exact against MAME 0.285;
-and all 80 SH-2 pipeline figures of PM section 7 reproduced state for state.
+all 80 SH-2 pipeline figures of PM section 7 reproduced state for state; and the
+only hardware numbers there are: Dunkley's eight CPS3 purge-order values exactly,
+67 of 68 of his CPU-resident CPS3 loops inside the board's warm samples (the 68th is
+one line fill of the board's own working set), and 32xspd's cached-read loop at the
+11 states an iteration a real 32X shows.
 
 ```python
 from sh2_python import SH7604
@@ -34,7 +39,7 @@ states = chip.step()              # one instruction or exception sequence
 ```sh
 python -m sh2_python ROM.bin                        # the minimal harness: run, print R0
 python -m sh2_python ROM.bin --console              # the line debugger
-pytest                                              # rungs 0-2 (fast); -m slow for all of it
+pytest                                              # rungs 0-4 (fast); -m slow for all of it
 ```
 
 The documents in [`docs/`](docs/README.md) gather what the build needs, each fact
@@ -49,7 +54,10 @@ decide.
 
 ## What is fetched
 
-Nothing third-party is committed. `scripts/fetch_references.py` rebuilds
+Nothing third-party is committed but two small extracts, each attributed:
+`validation/rung4/dn_p2.json` (from Dunkley's CC-BY-4.0 companion data, by
+`scripts/extract_dn_rung4.py`) and the ten words of 32xspd's cached-read loop in
+`tests/test_rung4.py`. `scripts/fetch_references.py` rebuilds
 `reference/` (about 70 MB) from `scripts/pinned_files.json` (10 files pinned by
 SHA-256: the SH7604 hardware manual, three editions of the SH-1/SH-2
 programming manual, Dunkley's CPS3 measurements and their data, the 32xspd
@@ -81,6 +89,8 @@ romset and the cartridges come from the user's own collection.
 | `scripts/build_jgenesis_harness.py` | the rung-1 referee harness around jgenesis' `sh2-emu` |
 | `validation/rung1/` | the rung-1 corpus: generator, MAME runner, gate, rulings |
 | `validation/rung2/replay.py` | the rung-2 replay of a MAME bus trace |
+| `scripts/extract_dn_rung4.py` | DN/DP's P2 loops, samples and purge values from the companion into `validation/rung4/dn_p2.json` |
+| `validation/rung4/dn.py`, `sh2asm.py` | the rung-4 run: P2's routines rebuilt (a small assembler for their forms) on a CPS3-like bus |
 | `benchmarks/harness_speed.py` | instructions per second on the minimal harness |
 
 ## Licence
