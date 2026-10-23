@@ -312,3 +312,16 @@ decision).
   the sum clamped to 48 bits and stored sign-extended). Rung 1 rules its 45
   disagreeing cases this way (validation/rung1/overrides.json, `mac-l-saturation`).
 
+### C12 — MAME 0.285 accepts interrupts where HM 4.6 says none are accepted
+
+HM 4.6.2 and table 4.10: after `LDC`, `LDC.L`, `STC`, `STC.L`, `LDS`, `LDS.L`,
+`STS`, `STS.L` an interrupt is not accepted before the next instruction. MAME's
+interpreter checks pending interrupts whenever a line changes or SR is loaded
+(`sh2.cpp` `execute_set_input`, `LDCSR`'s `m_test_irq`), with no such rule: in
+the rung-2 trace of BC Racers it took 58 interrupts right after an `LDS`/`STS`
+class instruction in the first 20.6 M master instructions (the first after
+`LDS R1,MACL` at H'0206A4EE, instruction 5,292,129). Its `SLEEP` also loops on
+the instruction (`pc -= 2`) instead of stopping the CPU, so a trace shows SLEEP
+repeated until the interrupt. **Build**: HM. The rung-2 replay counts these as
+MAME's (`mame-interrupt-after-ldc`, `mame-sleep`) and takes MAME's interrupt at
+MAME's boundary so the comparison can continue.
