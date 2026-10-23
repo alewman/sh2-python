@@ -76,13 +76,19 @@ Manufacturer bulletin tier.
 ## U7 — MAC saturation details
 
 PM `MAC.W`: with S = 1 the addition saturates to 32 bits in MACL
-(H'80000000–H'7FFFFFFF) and "if an overflow occurs, the LSB of the MACH
-register is set to 1"; with S = 0 the full 64-bit sum. PM `MAC.L`: with S = 1
-the sum saturates at 48 bits. Ymir's `sh2_macwl_testdata.inc` agrees: MACH's
-other bits keep their value and only bit 0 is set (`0x6E43A906` → `0x6E43A907`
-in its first case), and `MAC.L` saturates to `0x00007FFF_FFFFFFFF` /
+(H'80000000–H'7FFFFFFF); with S = 0 the full 64-bit sum. PM `MAC.L`: with S = 1
+the sum saturates at 48 bits. Whether a `MAC.W` overflow also sets MACH's LSB is
+a contradiction inside the manuals (C11): the prose of PM 6.31 and SWM says "if an
+overflow occurs, the LSB of the MACH register is set to 1", but the code on the
+same pages marks the two lines that do it "For SH-1 CPU (these 2 lines not
+needed for SH-2 CPU)". Ymir's `sh2_macwl_testdata.inc` sets the bit: MACH's other
+bits keep their value and only bit 0 is set (`0x6E43A906` → `0x6E43A907` in its
+first case), and its `MAC.L` saturates to `0x00007FFF_FFFFFFFF` /
 `0xFFFF8000_00000000`. Ymir does not say where its vectors came from
-(validation.md). **Build**: PM; Ymir's vectors as a detector.
+(validation.md). MAME and jgenesis leave MACH alone (rung 1 corpus).
+**Build**: the code's SH-2 annotation for `MAC.W` (MACH unchanged); PM's prose for
+`MAC.L`'s range (C11); Ymir's vectors as a detector at rung 5, where a
+disagreement on the MACH bit stays open until hardware shows it.
 
 ## U8 — Cache: multiple ways with one tag, two-way mode, ID/OD
 
@@ -293,3 +299,16 @@ HM 7.4.1: a read's size is not on the pins; it is always the device's full
 width. Emulators (MAME, jgenesis, Mednafen) hand their boards the CPU's access
 size. The board-facing contract has to pick one (handoff brief, open
 decision).
+
+### C11 — `MAC.W` and `MAC.L` with S = 1: the manuals' prose against their code
+
+- `MAC.W` (PM 6.31, SWM): the prose sets MACH's LSB on overflow; the code says
+  those lines are SH-1 only (U7). Followed: the code's SH-2 annotation.
+- `MAC.L` (PM 6.29): the prose limits the result to H'FFFF8000_00000000 ..
+  H'00007FFF_FFFFFFFF using "only the lower 48 bits" of MAC; the code adds MACH's
+  low 16 bits unsigned and saturates the negative side to H'00008000_00000000 (the
+  sign bits clear, outside the prose's range). MAME transcribes the code; jgenesis
+  clamps the full 64-bit sum. Followed: the prose (MAC's low 48 bits sign-extended,
+  the sum clamped to 48 bits and stored sign-extended). Rung 1 rules its 45
+  disagreeing cases this way (validation/rung1/overrides.json, `mac-l-saturation`).
+
