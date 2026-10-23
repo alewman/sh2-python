@@ -43,10 +43,14 @@
   "date": "2026-10-20T19:31:19Z",
   "sparse": [
    "/LICENSE",
-   "/cpu/sh2-emu/"
+   "/Cargo.toml",
+   "/Cargo.lock",
+   "/cpu/sh2-emu/",
+   "/common/jgenesis-common/",
+   "/common/jgenesis-proc-macros/"
   ],
   "license": "GPL-3.0",
-  "note": "Rust sh2-emu crate: CPU, cache, DMAC, DIVU, FRT, WDT, SCI. Its README: 'does not attempt to track timing. Almost all instructions take 1 cycle plus memory access delays'; issue #493 records the hardware-derived timing tweaks since. backend/s32x-core is NOT fetched (it carries SH-2 boot ROM binaries). Emulator."
+  "note": "Rust sh2-emu crate: CPU, cache, DMAC, DIVU, FRT, WDT, SCI. Its README: 'does not attempt to track timing. Almost all instructions take 1 cycle plus memory access delays'; issue #493 records the hardware-derived timing tweaks since. backend/s32x-core is NOT fetched (it carries SH-2 boot ROM binaries). The workspace manifest and the two common crates are fetched so scripts/build_jgenesis_harness.py can build sh2-emu for the rung-1 corpus. Emulator."
  },
  {
   "path": "reference/src/kronos",
