@@ -26,8 +26,9 @@ own modules never raise interrupts during a replay; their timing is not MAME's.
 **What the replay substitutes, and why** (each counted in the report):
 
 - *Time-dependent on-chip registers* (FRT FRC/FTCSR/ICR, WDT, the DMAC's
-  SAR/DAR/TCR/CHCR/DMAOR, SCI SSR, BSC RTCNT): MAME's clock is an instruction count,
-  not the pipeline (C5), so their values at a given instruction differ by construction.
+  SAR/DAR/TCR/CHCR/DMAOR, SCI SSR, BSC RTCSR's CMF and RTCNT): MAME's clock is an
+  instruction count, not the pipeline (C5), so their values at a given instruction
+  differ by construction.
   The core reads MAME's value instead, and the report counts how often the core's own
   value differed.
 - *The DMAC's transfers*: their timing is MAME's (``sh7604.cpp`` runs them on timers);
@@ -72,6 +73,7 @@ TIME_DEPENDENT = {
     **dict.fromkeys((4294966788,), "SCI.SSR"),
     **dict.fromkeys(range(4294967168, 4294967220), "DMAC"),
     **dict.fromkeys((4294966897, 4294966898), "DMAC"),
+    **dict.fromkeys(range(4294967280, 4294967284), "BSC.RTCSR"),
     **dict.fromkeys(range(4294967284, 4294967288), "BSC.RTCNT"),
 }
 CCR = 0xFFFFFE92
