@@ -647,8 +647,14 @@ on CS3 and turns refresh on, so the new cycles do run there. The register gate d
 depend on them: the replays take time-dependent on-chip values from MAME's trace (RTCSR
 now among them, since CMF depends on time), MAME's DMA writes and interrupts, and
 REFRESH calls read the replay memory without side effects. With `--cache` the deferred
-CCR write (U9) depends on the write buffer's end, which SDRAM writes now move; see the
-rerun below.
+CCR write (U9) depends on the write buffer's end, which SDRAM writes now move. A
+300,000-instruction prefix of BC Racers shows the replay host at BCR1 = H'0001, MCR =
+H'0AB8, RTCSR = H'88 with 4,365 REFRESH calls. Rerun at 12aed9b (PyPy, four at once,
+load 25-30, 08:06-08:29): BC Racers 30,164,032 instructions, 58
+`mame-interrupt-after-ldc` (C12), nothing else, cache off 1,370 s and `--cache` (boot ROM
+and cartridge `--seed`ed) 1,156 s; Doom 34,555,701, nothing attributed, 1,349 s and
+1,238 s. No substituted on-chip read differed. The same as before the change.
+Knuckles' Chaotix and Virtua Racing Deluxe were not rerun.
 
 **32xspd through sega32x-python** (its `scripts/run_32xspd.py`, board at 67e0e19, this
 branch on PYTHONPATH, PyPy, one run, 380 frames, 2,248 s at load 40-60), SH-2 clocks per
