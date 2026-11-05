@@ -119,7 +119,10 @@ chip = SH7604(read, write, mode="master")    # or "slave": the MD pin setting
 #   chip.wait      0 on entry; the board adds WAIT-pin states (arbitration,
 #                  slow devices). The core adds them to the BSC's own cycle
 #                  length (2 states + WCR waits + idle cycles, or the
-#                  SDRAM/burst timing).
+#                  SDRAM/burst timing). On an SDRAM cycle the WAIT pin is
+#                  ignored (HM 7.2.3): the board adds only arbitration there.
+#   chip.bsc.cycle_states[area]  the BSC's states for this call (an SDRAM
+#                  call's own: a burst's first call carries its commands)
 states = chip.step()   # one instruction or one exception sequence
 ```
 

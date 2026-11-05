@@ -236,7 +236,8 @@ external cycles reach the board. Consequences the contract has to carry:
 - **Ordinary cycles** take 2 states plus programmed waits (WCR) plus the WAIT
   pin, with idle cycles between a read and a following write per WCR.IW
   (HM 7.2, 7.4.1, 7.9). SDRAM, DRAM, burst-ROM and pseudo-SRAM interfaces
-  have their own timing (HM 7.5–7.8). Which areas use which interface is set by
+  have their own timing (HM 7.5–7.8; this core builds the SDRAM's and its refresh,
+  docs/timing.md "Synchronous DRAM"). Which areas use which interface is set by
   BCR1/BCR2/MCR, written by the boot ROM; the 32X's boot ROM sets external waits
   only and puts the SDRAM in bank-active mode with CAS latency 2 (32XDK wiki;
   jgenesis #493).

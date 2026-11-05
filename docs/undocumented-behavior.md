@@ -1,7 +1,7 @@
 # Undocumented behaviour, open items, and where sources contradict
 
-Items **U1–U22** are behaviours the manuals leave unsaid, ambiguous, or say
-only in passing, that a core must still decide. **C1–C20** are places where
+Items **U1–U24** are behaviours the manuals leave unsaid, ambiguous, or say
+only in passing, that a core must still decide. **C1–C21** are places where
 sources contradict each other. Each says what is known, from which tier, and
 what the build should do; "open" means nothing above emulator tier settles it.
 Source names as in [start-here.md](start-here.md).
@@ -281,6 +281,71 @@ ADDs after it costs the same per group, 8.00 on the core's CPS3-like bus and 8.4
 the board, and with 8 ADDs 10.00 and 10.14, where the CPU's own instructions take
 over (validation.md "What ran, rung 4").
 
+## U23 — Synchronous DRAM cycles: what HM 7.5 leaves to the reader
+
+HM 7.5 gives each SDRAM cycle as a timing figure with named states (Tr, Trw, Tc, Tw,
+Td, Tap, Tp, Tnop, Trwl) and the MCR/WCR fields that add or remove them; it gives no
+cycle counts and no figure for every combination. What the build reads into them
+(bsc.py's table, docs/timing.md "Synchronous DRAM"):
+
+- **The tail is the bank's, not the bus's.** An auto-precharge read's Tap and a write's
+  Trwl + Tap are drawn inside the cycle (figures 7.15-7.18), but HM 7.5.3 says that
+  during Tap "no new access commands are issued to the same bank. Accesses of the other
+  bank ... by another CS space are possible", and HM 7.5.6 that the precharge wait
+  becomes "invisible" when the next access comes later than tAP (reads) or tRWL + tAP
+  (writes). **Build**: they hold back only the next command to that bank.
+- **Tap's count**: "When the CAS latency is 1, a Tap cycle of 1 or 2 cycles is generated.
+  When the CAS latency is 2 or more, a Tap cycle equal to the TRP specification - 1" (HM
+  7.5.3), for reads. For writes HM names Tap without a count; **build**: TRP cycles (the
+  precharge starts after Trwl, so nothing of it overlaps the cycle).
+- **TRWL in bank-active mode** "specifies the period for which the precharge command is
+  disabled after the write command" (HM 7.2.4). **Build**: a Tp to that bank may not
+  start before the write's end + TRWL; it shows only when a row change follows a write
+  at once.
+- **A row change**: figure 7.21/7.24 draw Tp then Tr; TRP sets "the number of cycles
+  between the issue of the precharge command and the row address strobe command" (HM
+  7.5.6), so with TRP = 2 cycles a Tnop sits between them, as HM 7.5.7 says for refresh.
+- **Rows and banks**: HM table 7.4 gives the pins, not the row. **Build**: the bank is
+  the address bit table 7.4's note 2 marks; the row is every address bit from the one the
+  row phase puts on the device's A0 (the chip's A1 with SZ = 0, A2 with SZ = 1, HM 7.5.2)
+  up to the bank bit. For the 32X (SZ = 0, AMX = 111): bank A17, row A16-A9.
+- **A burst's callbacks**: HM 7.5.4 says a cache-through or DMA read of SDRAM still
+  makes the 8-cycle burst and fetches data only in Td1 (word, byte) or Td1-Td2
+  (longword on 16 bits). **Build**: one call per cycle that fetches data, the first
+  carrying the command states and the last the unused data cycles; a line fill is 8 (or
+  4) calls, all its cycles data.
+- **Bus release**: "Both banks will become inactive ... after the bus is released by
+  bus arbitration" (HM 7.5.6). The core does not see arbitration (the board does), so the
+  board calls `chip.bsc.bus_released()`; the precharge's own states are not modelled.
+
+Manual tier, read; the 32X's figures agree with jgenesis #493's reading of the same
+pages (research) and fall inside Sega's 32X Manual's (C21).
+
+## U24 — The refresh timer and the refresh cycle
+
+- **Period**: "RTCNT is cleared to 0 at that time [the match] and the count up starts
+  again" (HM 7.5.7), and RTCNT "Returns to 0 after it counts up to 255" (HM 7.2.6).
+  **Build**: the count that would reach RTCOR clears it and makes the request, so a
+  request comes every RTCOR counts of CKIO / CKS (the 32X: 89 × 4 = 356 states); RTCNT
+  never reads as RTCOR. Counts fall on multiples of the divider from reset, as the WDT's.
+- **The cycle's length**: figure 7.25 draws Tp, Trr, then Trc Trc Trc Tre (TRAS + 2 with
+  TRAS's reset value 2 cycles); HM 7.2.4 calls the last part a time in which "the
+  synchronous DRAM does not issue a bank active command". Whether other areas' cycles
+  may run during it is not said. **Build**: the whole cycle holds the bus (the figure),
+  Tp [Tnop] Trr + TRAS + 2: 7 states on the 32X; one `read(..., REFRESH)` call at the
+  first SDRAM area's base.
+- **When**: "When a refresh request occurs while a bus cycle is executing, the refresh
+  will not be executed until the bus cycle is completed" (HM 7.5.7). **Build**: a line
+  fill, a burst and a longword's port cycles are one access, never split; a request
+  during one is made when it ends; one made while the bus is idle is made at the request
+  (reported at a step boundary or before the next access, with ``chip.clock`` set to its
+  start for the call). A refresh does not delay the CPU unless the CPU wants the bus
+  while it runs.
+- **CMF/CMI**: CMF is set at each match whatever RFSH says; CMI is requested with CMIE
+  at IPRA's WDT level and VCRWDT's BCMV vector (HM table 5.4 orders it after the WDT).
+- **Self-refresh** (RMD = 1) is not modelled: no refresh is made and the SDRAM stays
+  accessible.
+
 ## Contradictions
 
 ### C1 — `TRAPA` takes 8 or 6 states
@@ -497,3 +562,14 @@ wait (the CPU goes on, as HM says) but the purge it requests is ordered behind t
 buffered write. **Build**: that (U9): every other on-chip access follows HM; CCR's
 effect is ordered behind a buffered external write. Hardware-captured on one board,
 the judge for purge ordering (decision 7).
+
+### C21 — Sega's 32X Manual against HM 7.5 on the 32X's SDRAM
+
+Sega's 32X hardware manual (32XDK wiki, section 4.1): SDRAM "8 words are read in 12
+cycles", writes 2 a word. HM 7.5 with the boot ROMs' BCR1/WCR/MCR (bank active, CAS
+latency 2, TRP = RCD = 1): a burst 11 to an idle bank, 10 on its open row, 12 on another
+row; a word write 2, 1 or 3. Sega's figures are HM's cases for a row change (reads) and
+an idle bank (writes): the Manual gives one number where HM's depends on the row state.
+jgenesis #493 (research) read HM the same way and matched the 32xspd photograph better
+with it. **Build**: HM (manual, the chip's own document); Sega's numbers are what a
+programmer may assume in the worst common case.
