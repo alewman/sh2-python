@@ -177,7 +177,7 @@ class DMAC(LongwordModule):
         kind = DMA | (DMA1 if channel.number else 0)
         src, dst = channel.sar, channel.dar
         if unit == 16:
-            words = [chip._dma_read(src + 4 * i, 32, kind) for i in range(4)]
+            words = chip._dma_read_unit(src, kind)
             for i, word in enumerate(words):
                 chip._dma_write(dst + 4 * i, 32, word, kind)
         else:

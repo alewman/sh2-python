@@ -223,8 +223,9 @@ Simplified or not yet modelled (later rungs; each changes timing only):
   3/4/11.
 - **DMA** cycles made at a step boundary delay the CPU's slots by their length (the
   bus is held); cycle-steal interleaving is rung 5/6.
-- **Burst/SDRAM cycle shapes, idle cycles, refresh, arbitration** are the BSC's
-  later work (rung 5/6); every external cycle is an ordinary-space cycle.
+- **Burst-ROM, DRAM and pseudo-SRAM cycle shapes, idle cycles, arbitration** are the
+  BSC's later work (rung 5/6); those areas' cycles are ordinary-space cycles.
+  Synchronous DRAM cycles and auto-refresh are built ("Synchronous DRAM" below).
 - A `BT`/`BF` whose target is the next instruction counts as not taken.
 
 ## Exceptions (PM 7.7.7, HM 5.5)
@@ -308,16 +309,42 @@ The board owns what is outside the pins; the BSC owns the shape of each cycle.
   0, 1 or 2 programmed waits per area, or select BCR1's long wait; any setting
   but "no wait" also samples the external WAIT pin (HM 7.2.3). WCR's IW bits
   insert 0, 1 or 2 idle cycles between a read and a following write (HM 7.9).
-- **Burst ROM, SDRAM, DRAM, pseudo-SRAM** (HM 7.5–7.8): burst reads for line
-  fills, bank-active mode, CAS latency, refresh. The 32X's SDRAM is driven by
-  the SH-2s' BSC in bank-active mode, CAS latency 2 (jgenesis #493, from the
-  32X boot ROM's settings). Its measured costs (jgenesis #493, against
-  hardware): an 8-word burst read 10–12 cycles depending on the row; writes 1–3.
-  Sega's 32X hardware manual (32XDK wiki): SDRAM "8 words are read in 12
-  cycles", writes 2, cartridge 6–15, frame buffer reads 5–12 and writes 1–3,
-  "a wait is required for all 32X blocks". These are board numbers, but the
-  core's BSC produces the burst: a cache-through read of SDRAM still bursts 8
-  words (32XDK wiki).
+- **Burst ROM, DRAM, pseudo-SRAM** (HM 7.6–7.8): not modelled; ordinary cycles.
+- **Synchronous DRAM** (HM 7.5; built 2026-11-05, `bsc.py` has the table). Selected by
+  BCR1 DRAM2–DRAM0 (area 3, area 2 or both); the port is MCR.SZ's, WCR's bits are the
+  CAS latency, and "external wait input is ignored regardless of any setting" (HM
+  7.2.3). Every read is a 16-byte burst, 8 data cycles on 16 bits or 4 on 32 bits, a
+  cache-through, ID/OD or DMA read included ("8-word-burst-read-fixed", HM 7.5.4);
+  writes are single (HM 7.5.5). With the 32X's boot-ROM values (BCR1 = H'0001, WCR =
+  H'0055, MCR = H'0AB8: bank active, CAS latency 2, TRP = RCD = TRWL = 1, TRAS = 3):
+
+  | Access to CS3 | before (d55bbb0) | now | HM |
+  | --- | ---: | ---: | --- |
+  | line fill, bank idle (first after a refresh) | 24 | 11 | Tr Tc Tw Td1–Td8, figure 7.19 |
+  | line fill, same row | 24 | 10 | Tc Tw Td1–Td8, figure 7.20 (no Tnop with CL 2) |
+  | line fill, other row of the bank | 24 | 12 | Tp Tr Tc Tw Td1–Td8, figure 7.21 |
+  | cache-through longword / word / byte read | 6 / 3 / 3 | the fill's 10–12 | HM 7.5.4, figure 7.17 |
+  | 16-byte DMA read | 24 | the fill's 10–12, address order | HM 7.5.3 |
+  | word write: same row / idle bank / other row | 3 | 1 / 2 / 3 | figures 7.23 / 7.22 / 7.24 |
+  | longword write | 6 | two single writes (2–6) | HM 7.5.5 |
+  | auto-refresh, every 356 states | none | 7: Tp Trr + TRAS + 2 | HM 7.5.7, figure 7.25 |
+
+  In auto-precharge mode (RASD = 0, and always in area 2) every cycle starts with Tr;
+  Tap (reads) and Trwl + Tap (writes) hold only the bank (U23). Banks close at a
+  refresh, at a new BCR1/MCR setting and when the board calls `chip.bsc.bus_released()`
+  (HM 7.5.6). Sega's 32X Manual gives 12 for a burst and 2 for a write (C21): HM's
+  row-change and idle-bank cases.
+
+  **The callbacks** see one call per port cycle, as before: a burst's first call
+  carries its command states, each call one data cycle, the last the data cycles the
+  access does not use. Inside a callback `chip.bsc.cycle_states[area]` is that call's
+  states, so `chip.clock + cycle_states[area] + chip.wait` is still the cycle's end.
+  **`chip.wait` on an SDRAM cycle** (the PR's item 4): kept. HM 7.2.3 ignores the WAIT
+  pin there, so a board must not add WAIT states for the device (sega32x-python's
+  `Quirks.sh2_sdram` already adds none); but `chip.wait` is also how a board makes a
+  cycle start later because the bus was not granted (HM 7.10, the 32X's two SH-2s
+  sharing the SDRAM), and that delay is real for SDRAM cycles. Dropping it would leave
+  the board no way to express arbitration on its busiest memory.
 - **Write buffer**: one level (HM 7.11.2). A write completes for the CPU when
   the internal bus takes it; a read waits for any pending write; a dummy read
   of the same address waits for the write to finish. DN measured a
@@ -331,9 +358,14 @@ The board owns what is outside the pins; the BSC owns the shape of each cycle.
   master shares only CS2. The 32X's slave SH-2 "will temporarily stall if they
   access the bus simultaneously" (jgenesis `s32x-core` README); Mednafen calls
   its master/slave sharing "very approximate".
-- **Refresh**: the BSC's refresh timer (RTCSR/RTCNT/RTCOR) issues refresh
-  cycles that occupy the bus (HM 7.2.5–7.2.7). Whether the 32X's settings make
-  this visible is a board question (the core produces the cycles).
+- **Refresh** (HM 7.2.5–7.2.7, 7.5.7; built): RTCNT counts CKIO / CKS (4 to 4096),
+  read live; at RTCOR it is cleared, CMF is set (CMI with CMIE) and, with MCR.RFSH = 1,
+  RMD = 0 and an SDRAM area, a refresh is requested: one `read(address, width,
+  REFRESH)` call of Tp [Tnop] Trr + TRAS + 2 states (7 on the 32X, every 89 × 4 = 356
+  states, about 2 % of the bus) that closes every bank. It is made after the access
+  under way (never inside a fill or a burst) or at the request when the bus is idle;
+  the CPU waits only if it wants the bus meanwhile. Slave mode makes none (HM 7.2.4).
+  Choices in U24.
 
 ## DMA (HM chapter 9)
 

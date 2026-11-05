@@ -247,6 +247,7 @@ class SH7604(
         self._onchip = self._onchip_map()
         self._ports = self.bsc.widths  # updated in place by the BSC
         self._cycle_states = self.bsc.cycle_states
+        self._sdram = self.bsc.sdram  # which areas are synchronous DRAM (HM 7.5)
         self.read_onchip = self._module_read
         self.write_onchip = self._module_write
 
@@ -299,6 +300,7 @@ class SH7604(
         out += self.divu.requests(intc)
         out += self.dmac.requests(intc)
         out += self.wdt.requests(intc)
+        out += self.bsc.requests(intc)
         out += self.sci.requests(intc)
         out += self.frt.requests(intc)
         return out

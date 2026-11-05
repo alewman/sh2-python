@@ -619,3 +619,73 @@ buffer.
 **Speed** (`benchmarks/harness_speed.py`, one run each, load average ~40 on 32 cores,
 informational): CPython 3.14.4 185,000 instructions/s; PyPy 3.11 104,000 cache off,
 114,000 cache on (rung 3: 215,000, 92,000 and 90,000 at load 50-58). Not optimised.
+
+## What ran, synchronous DRAM (2026-11-05)
+
+**What the core gained** (branch `sdram-bsc`; bsc.py's docstring, docs/timing.md
+"Synchronous DRAM", U23, U24, C21): HM 7.5's synchronous DRAM cycles when BCR1 selects
+them (bursts for every read, single writes, bank-active rows, CAS latency, TRP/RCD/TRWL)
+and the refresh timer with its auto-refresh cycles (HM 7.2.5-7.2.7, 7.5.7), from the PR
+description sega32x-python wrote (its `docs/sh2-python-sdram-pr.md`). Reset values
+select neither, so every host that does not write BCR1's DRAM bits keeps its cycles.
+`tests/test_sdram.py` (20 tests) holds HM's cases with the 32X's registers: fills 11 /
+10 / 12 by row state, a cache-through word or longword read the same burst, word writes
+2 / 1 / 3, a 32-bit port's 4-cycle burst, CAS latency 1's Tnop, auto-precharge Tap and
+Trwl, a refresh every 356 states through `read(..., REFRESH)` of 7 states that closes
+the banks and waits for the access under way, RFSH/RMD/slave mode, RTCNT/CMF/CMI, and
+the reset values' ordinary cycles, and a refresh longer than its period (RTCOR = 1)
+that must not run away.
+
+**The earlier gates.** Fast tests 592 on CPython 3.14 and PyPy 3.11 (572 + 20); ruff
+0.16.8 check and format clean. Rung 1 and rung 4's CPU-resident loops (`pytest -q -m
+slow tests/test_rung1.py tests/test_rung4.py`, PyPy, as CI's corpus job): pass, 65 s.
+Neither host selects SDRAM (rung 1's harness keeps the reset BCR1; rung 4's CPS3
+harness writes BCR1 = H'0020), so their cycles are the same by construction.
+
+**Rung 2.** The replay host is the 32X's master after its boot ROM, which selects SDRAM
+on CS3 and turns refresh on, so the new cycles do run there. The register gate does not
+depend on them: the replays take time-dependent on-chip values from MAME's trace (RTCSR
+now among them, since CMF depends on time), MAME's DMA writes and interrupts, and
+REFRESH calls read the replay memory without side effects. With `--cache` the deferred
+CCR write (U9) depends on the write buffer's end, which SDRAM writes now move. A
+300,000-instruction prefix of BC Racers shows the replay host at BCR1 = H'0001, MCR =
+H'0AB8, RTCSR = H'88 with 4,365 REFRESH calls. Rerun at 12aed9b (PyPy, four at once,
+load 25-30, 08:06-08:29): BC Racers 30,164,032 instructions, 58
+`mame-interrupt-after-ldc` (C12), nothing else, cache off 1,370 s and `--cache` (boot ROM
+and cartridge `--seed`ed) 1,156 s; Doom 34,555,701, nothing attributed, 1,349 s and
+1,238 s. No substituted on-chip read differed. The same as before the change.
+Knuckles' Chaotix and Virtua Racing Deluxe were not rerun.
+
+**32xspd through sega32x-python** (its `scripts/run_32xspd.py`, board at 67e0e19, this
+branch on PYTHONPATH, PyPy, one run, 380 frames, 2,248 s at load 40-60), SH-2 clocks per
+iteration:
+
+| Loop | hardware | board, core d55bbb0 | board, this branch |
+| --- | ---: | ---: | ---: |
+| cached read | 11.31 | 11.39 | 11.31 |
+| SDRAM read (a fill an iteration) | 22.08 | 35.21 | 20.91 |
+| sparse SDRAM read (four fills) | 51.49 | 105.64 | 49.34 |
+| sparse SDRAM uncached (four longwords) | 51.37 | 32.01 | 49.02 |
+| SDRAM write (four longwords) | 13.53 | 25.63 | 13.53 |
+| SDRAM-VRAM copy | 46.59 | 52.82 | 41.44 |
+| ROM read / sparse ROM read / sparse ROM uncached | 76.53 / 271.10 / 75.00 | 75.51 / 267.87 / 72.58 | 75.00 / 271.10 / 72.35 |
+| VRAM write / ROM-VRAM copy | 41.14 / 101.36 | 40.91 / 92.60 | 40.62 / 93.75 |
+
+(The d55bbb0 column is sega32x-python's validation.md "Milestone 5b", a5a606c.) Every
+SDRAM row moved to within 5 % of the photograph, from 37-106 % off; the write loop is
+exact. The reads are now 1.2 clocks a fill fast (2.2 over four sparse fills), the size
+of what timing.md lists as not modelled: the cache-through read's extra cycle and a
+fill's tag-check state (HM 7.11.2, 8.4.1). Nothing was fitted. The photograph is one
+console and one exposure (research tier): it detects, it does not judge.
+
+**The rickroll player** (sega32x-python `reference/rickroll/c1v_0`, 200 frames,
+`--png-every 1`, its `verify_run.py`): 19 video frames shown in order, 0 unknown, first
+at hardware frame 141, fields per frame {2: 3, 3: 10, 4: 3, 5: 1, 6: 1} (mean 3.3);
+the same 200 frames of sega32x-python's own run at a5a606c (core d55bbb0): 16 shown,
+first at 137, {3: 4, 4: 8, 5: 2, 6: 1} (mean 4.0). SH-2 instructions at frame 200:
+31,264,713 / 43,285,252 against 29,596,022 / 40,405,404. 1,261 s.
+
+**Speed** (`benchmarks/harness_speed.py`, PyPy, cache off, d55bbb0 and this branch
+alternated, load 45-60): 107,000 and 87,000 against 88,000 and 87,000 instructions/s;
+no change outside the noise. The chip now has 91 instance attributes (88 before),
+already past PyPy's 80 (the family's note on PyPy's attribute limit).

@@ -253,6 +253,10 @@ class PipelineMixin:
         self._wb_end = 0
         self._ccr_at = 0
         self._ccr_value = 0
+        # The BSC's refresh (_core.py ``_refresh_before``): where the last refresh cycle
+        # ends, and the clock from which an access must look at the BSC first.
+        self._refresh_end = 0
+        self._bsc_due = self.bsc.refresh_at
         self._pipeline_restart()
 
     def _pipeline_restart(self) -> None:

@@ -35,6 +35,12 @@ The rules it encodes, with their sources:
   do not wait. A CCR write that arrives while a write is buffered takes effect when
   that write's cycles end, and cache hits use the old lines meanwhile (U9: DN's
   hardware values; C20). DMA writes are not buffered here (rung 5).
+- **Synchronous DRAM and refresh** (HM 7.5; bsc.py has the shapes). A read of an SDRAM
+  area is one burst, a write a single write, with the states the BSC gives by row and
+  bank; a line fill is one burst, still one callback per port cycle. Refresh requests
+  are made between external accesses, never inside one (HM 7.5.7: "after the access
+  cycle is completed"), and at step boundaries when the bus is idle; an access that
+  finds one under way waits for it.
 - **Address errors** (HM table 4.6): a misaligned word or longword access, an odd
   instruction address, a fetch from on-chip module space, a byte access to
   H'FFFFFF00-, a longword access to H'FFFFFE00-H'FFFFFEFF. The faulting access is not
@@ -45,7 +51,7 @@ The rules it encodes, with their sources:
 
 from collections.abc import Callable
 
-from sh2_python.bus import DATA, FETCH, FILL, FIRST, HIT, THROUGH, VECTOR, WRITE
+from sh2_python.bus import DATA, FETCH, FILL, FIRST, HIT, REFRESH, THROUGH, VECTOR, WRITE
 from sh2_python.cache import CCR_ID, CCR_OD
 
 ReadFunction = Callable[[int, int, int], int]
@@ -154,10 +160,13 @@ class CoreMixin:
         clock = self.clock
         self.frt.run_until(clock)
         self.wdt.run_until(clock)
+        self.bsc.run_until(clock)
+        if self.bsc.refresh_at <= clock:
+            self._refresh_idle()
         self._reschedule()
 
     def _reschedule(self) -> None:
-        self._next_event = min(self.frt.next_event(), self.wdt.next_event())
+        self._next_event = min(self.frt.next_event(), self.wdt.next_event(), self.bsc.next_event())
 
     def _stall(self, states: int) -> None:
         """A module extends the current access by ``states`` (the DIVU, HM 10.4.1).
@@ -423,13 +432,32 @@ class CoreMixin:
         way = cache.victim(entry)
         base = cache.allocate(address, way)
         line = address & 0x1FFFFFF0
-        flag = FIRST
-        # HM 8.4.1, figure 8.4: four longwords from address + 4, wrapping in the line,
-        # so the one holding the requested data comes last.
-        for step in (4, 8, 12, 0):
-            offset = ((address & 0xC) + step) & 0xC
-            cache.put(base | offset, 32, self._bus_read(line | offset, 32, kind | FILL | flag))
-            flag = 0
+        area = (line >> 25) & 3
+        # The fill is one access: no refresh between its cycles (HM 7.5.7).
+        if self.clock >= self._bsc_due:
+            self._refresh_before()
+        if self._sdram[area]:
+            self._sdram_fill(base, line, address, kind, area)
+        else:
+            port = self._ports[area]
+            flag = FIRST
+            # HM 8.4.1, figure 8.4: four longwords from address + 4, wrapping in the
+            # line, so the one holding the requested data comes last.
+            for step in (4, 8, 12, 0):
+                offset = ((address & 0xC) + step) & 0xC
+                cycle = line | offset
+                fill = kind | FILL | flag
+                if port == 32:
+                    value = self._cycle_read(cycle, 32, fill, area)
+                else:
+                    value = 0
+                    for i in range(32 // port):
+                        part = self._cycle_read(cycle + i * (port >> 3), port, fill, area)
+                        value = (value << port) | part
+                cache.put(base | offset, 32, value)
+                flag = 0
+        if self.clock >= self._bsc_due:
+            self._refresh_after()
         return cache.get(base | (address & 15), width)
 
     # -- the external bus (through the BSC) -------------------------------------------
@@ -443,15 +471,24 @@ class CoreMixin:
         """
         if self.clock < self._wb_end:
             self.clock = self._wb_end
+        if self.clock >= self._bsc_due:
+            self._refresh_before()
         address &= 0x1FFFFFFF
         area = (address >> 25) & 3
-        port = self._ports[area]
-        if width <= port:
-            return self._cycle_read(address, width, kind, area)
-        step = port >> 3
-        value = 0
-        for i in range(width // port):
-            value = (value << port) | self._cycle_read(address + i * step, port, kind, area)
+        if self._sdram[area]:
+            value = self._sdram_read(address, width, kind, area)
+        else:
+            port = self._ports[area]
+            if width <= port:
+                value = self._cycle_read(address, width, kind, area)
+            else:
+                step = port >> 3
+                value = 0
+                for i in range(width // port):
+                    part = self._cycle_read(address + i * step, port, kind, area)
+                    value = (value << port) | part
+        if self.clock >= self._bsc_due:
+            self._refresh_after()
         return value
 
     def _cycle_read(self, address: int, width: int, kind: int, area: int) -> int:
@@ -487,23 +524,142 @@ class CoreMixin:
 
     def _write_cycles(self, address: int, width: int, value: int, kind: int) -> None:
         """The port-width write cycles of one access, back to back from ``chip.clock``."""
+        if self.clock >= self._bsc_due:
+            self._refresh_before()
         address &= 0x1FFFFFFF
         area = (address >> 25) & 3
+        cycle = self._sdram_write if self._sdram[area] else self._cycle_write
         port = self._ports[area]
         if width <= port:
-            self._cycle_write(address, width, value, kind, area)
-            return
-        step = port >> 3
-        count = width // port
-        mask = WIDTH_MASK[port]
-        for i in range(count):
-            part = (value >> (port * (count - 1 - i))) & mask
-            self._cycle_write(address + i * step, port, part, kind, area)
+            cycle(address, width, value, kind, area)
+        else:
+            step = port >> 3
+            count = width // port
+            mask = WIDTH_MASK[port]
+            for i in range(count):
+                part = (value >> (port * (count - 1 - i))) & mask
+                cycle(address + i * step, port, part, kind, area)
+        if self.clock >= self._bsc_due:
+            self._refresh_after()
 
     def _cycle_write(self, address: int, width: int, value: int, kind: int, area: int) -> None:
         self.wait = 0
         self.write(address, width, value, kind)
         self.clock += self._cycle_states[area] + self.wait
+
+    # -- synchronous DRAM (HM 7.5) and refresh (HM 7.5.7) ---------------------------------
+
+    def _sdram_burst(self, address: int, calls: list, area: int) -> list[int]:
+        """One burst read (HM 7.5.3, 7.5.4): ``calls`` are its port cycles, each a
+        callback, ``(address, width, kind)``. The first carries the burst's command
+        states, the last the data cycles the access does not use (figure 7.17)."""
+        bsc = self.bsc
+        start, command = bsc.read_start(area, address, self.clock)
+        self.clock = start
+        states = self._cycle_states
+        unused = bsc.burst[area] - len(calls)
+        last = len(calls) - 1
+        values = []
+        for i, (cycle, width, kind) in enumerate(calls):
+            length = 1
+            if i == 0:
+                length += command
+            if i == last:
+                length += unused
+            states[area] = length
+            self.wait = 0
+            values.append(self.read(cycle, width, kind) & WIDTH_MASK[width])
+            self.clock += length + self.wait
+        bsc.read_end(area, address, self.clock)
+        return values
+
+    def _sdram_read(self, address: int, width: int, kind: int, area: int) -> int:
+        """A cache-through, ID/OD, fetch or DMA read: a whole burst for its 1-4 bytes."""
+        port = self._ports[area]
+        if width <= port:
+            return self._sdram_burst(address, [(address, width, kind)], area)[0]
+        step = port >> 3
+        calls = [(address + i * step, port, kind) for i in range(width // port)]
+        value = 0
+        for part in self._sdram_burst(address, calls, area):
+            value = (value << port) | part
+        return value
+
+    def _sdram_fill(self, base: int, line: int, address: int, kind: int, area: int) -> None:
+        """A line fill from synchronous DRAM: one burst, in HM 8.4.1's wrap order (HM
+        7.5.3: "reading starts from the address + 4")."""
+        port = self._ports[area]
+        per = 32 // port
+        offsets = [((address & 0xC) + step) & 0xC for step in (4, 8, 12, 0)]
+        step = port >> 3
+        calls = [
+            (line | offset + i * step, port, kind | FILL | (FIRST if j == 0 else 0))
+            for j, offset in enumerate(offsets)
+            for i in range(per)
+        ]
+        values = self._sdram_burst(line, calls, area)
+        for j, offset in enumerate(offsets):
+            word = 0
+            for part in values[j * per : (j + 1) * per]:
+                word = (word << port) | part
+            self.cache.put(base | offset, 32, word)
+
+    def _sdram_write(self, address: int, width: int, value: int, kind: int, area: int) -> None:
+        """One single write (HM 7.5.5, 7.5.6)."""
+        bsc = self.bsc
+        start, length = bsc.write_cycle(area, address, self.clock)
+        self.clock = start
+        self._cycle_states[area] = length
+        self.wait = 0
+        self.write(address, width, value, kind)
+        self.clock += length + self.wait
+        bsc.write_end(area, address, self.clock)
+
+    def _make_refresh(self, free: int) -> None:
+        """One auto-refresh cycle, at the request or once the bus is free at ``free``,
+        through ``read`` with ``REFRESH`` (HM 7.5.7). ``chip.clock`` is the cycle's start
+        during the call and is put back after it."""
+        bsc = self.bsc
+        start, length = bsc.refresh_cycle(max(bsc.refresh_at, free))
+        cursor = self.clock
+        area = 2 if bsc.sdram[2] else 3
+        self.clock = start
+        self._cycle_states[area] = length
+        self.wait = 0
+        self.read(bsc.refresh_address(), self._ports[area], REFRESH)
+        end = start + length + self.wait
+        bsc.refresh_end(end)
+        bsc.refresh_served(start)
+        self._refresh_end = end
+        self.clock = cursor
+
+    def _refresh_before(self) -> None:
+        """At an access's start, the BSC wants attention: it waits for a refresh under
+        way, and refresh requests due by now are made first."""
+        if self.clock < self._refresh_end:
+            self.clock = self._refresh_end
+        bsc = self.bsc
+        wanted = self.clock  # fixed: a refresh longer than the period cannot run away
+        while bsc.refresh_at <= wanted:
+            self._make_refresh(max(self._wb_end, self._refresh_end))
+        if self.clock < self._refresh_end:
+            self.clock = self._refresh_end
+        self._bsc_due = bsc.refresh_at
+
+    def _refresh_after(self) -> None:
+        """At an access's end: a request made during it is made now, and the next
+        access will wait for it (``_bsc_due`` = 0 sends it through ``_refresh_before``)."""
+        if self.bsc.refresh_at <= self.clock:
+            self._make_refresh(self.clock)
+            self._bsc_due = 0
+
+    def _refresh_idle(self) -> None:
+        """Requests due by ``chip.clock`` while the bus is idle (a step boundary, a BSC
+        register write) are made where they fell due."""
+        bsc = self.bsc
+        while bsc.refresh_at <= self.clock:
+            self._make_refresh(max(self._wb_end, self._refresh_end))
+        self._bsc_due = 0 if self._refresh_end > self.clock else bsc.refresh_at
 
     # -- on-chip modules -----------------------------------------------------------------
 
@@ -553,6 +709,32 @@ class CoreMixin:
         if space == 6:
             return self.cache.get(address & 0xFFF, width)
         return 0
+
+    def _dma_read_unit(self, address: int, kind: int) -> list[int]:
+        """A 16-byte unit's four longwords. From synchronous DRAM they are one burst in
+        address order (HM 7.5.3: "the access order follows the address order in 16-byte
+        data transfers by the DMAC")."""
+        if address >> 29 in (0, 1) and self._sdram[(address >> 25) & 3]:
+            if self.clock < self._wb_end:
+                self.clock = self._wb_end
+            if self.clock >= self._bsc_due:
+                self._refresh_before()
+            address &= 0x1FFFFFFF
+            area = (address >> 25) & 3
+            port = self._ports[area]
+            per = 32 // port
+            calls = [(address + i * (port >> 3), port, kind) for i in range(4 * per)]
+            values = self._sdram_burst(address, calls, area)
+            if self.clock >= self._bsc_due:
+                self._refresh_after()
+            words = []
+            for j in range(4):
+                word = 0
+                for part in values[j * per : (j + 1) * per]:
+                    word = (word << port) | part
+                words.append(word)
+            return words
+        return [self._dma_read(address + 4 * i, 32, kind) for i in range(4)]
 
     def _dma_write(self, address: int, width: int, value: int, kind: int) -> None:
         space = address >> 29
