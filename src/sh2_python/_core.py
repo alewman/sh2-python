@@ -639,10 +639,11 @@ class CoreMixin:
         if self.clock < self._refresh_end:
             self.clock = self._refresh_end
         bsc = self.bsc
-        while bsc.refresh_at <= self.clock:
+        wanted = self.clock  # fixed: a refresh longer than the period cannot run away
+        while bsc.refresh_at <= wanted:
             self._make_refresh(max(self._wb_end, self._refresh_end))
-            if self.clock < self._refresh_end:
-                self.clock = self._refresh_end
+        if self.clock < self._refresh_end:
+            self.clock = self._refresh_end
         self._bsc_due = bsc.refresh_at
 
     def _refresh_after(self) -> None:

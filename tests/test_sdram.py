@@ -286,3 +286,16 @@ def test_reset_values_select_no_sdram_and_no_refresh():
     chip._write(CCR, 8, 0x01)
     assert states(chip, lambda: chip._read(SDRAM, 32)) == 4 * (2 + 6)  # WCR's long wait
     assert len(log) == 4
+
+
+def test_a_refresh_longer_than_its_period_does_not_run_away():
+    # RTCOR = 1 at CKIO / 4: a request every 4 states, each refresh 7. Requests made
+    # while one waits replace it (HM 7.2.7); the bus is refreshing back to back.
+    chip, log = board(refresh=True)
+    chip._write(RTCOR, 32, 0xA55A0001)
+    chip.clock = 100
+    chip._read(SDRAM, 32)
+    starts = [e[4] for e in log if e[3] == REFRESH]
+    before = [start for start in starts if start < 100]
+    assert before == list(range(4, 100, 7))  # back to back from the first request
+    assert chip.clock < 100 + 7 + 11 + 7  # the read ran, then one more refresh at most

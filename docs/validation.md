@@ -628,14 +628,15 @@ them (bursts for every read, single writes, bank-active rows, CAS latency, TRP/R
 and the refresh timer with its auto-refresh cycles (HM 7.2.5-7.2.7, 7.5.7), from the PR
 description sega32x-python wrote (its `docs/sh2-python-sdram-pr.md`). Reset values
 select neither, so every host that does not write BCR1's DRAM bits keeps its cycles.
-`tests/test_sdram.py` (19 tests) holds HM's cases with the 32X's registers: fills 11 /
+`tests/test_sdram.py` (20 tests) holds HM's cases with the 32X's registers: fills 11 /
 10 / 12 by row state, a cache-through word or longword read the same burst, word writes
 2 / 1 / 3, a 32-bit port's 4-cycle burst, CAS latency 1's Tnop, auto-precharge Tap and
 Trwl, a refresh every 356 states through `read(..., REFRESH)` of 7 states that closes
 the banks and waits for the access under way, RFSH/RMD/slave mode, RTCNT/CMF/CMI, and
-the reset values' ordinary cycles.
+the reset values' ordinary cycles, and a refresh longer than its period (RTCOR = 1)
+that must not run away.
 
-**The earlier gates.** Fast tests 591 on CPython 3.14 and PyPy 3.11 (572 + 19); ruff
+**The earlier gates.** Fast tests 592 on CPython 3.14 and PyPy 3.11 (572 + 20); ruff
 0.16.8 check and format clean. Rung 1 and rung 4's CPU-resident loops (`pytest -q -m
 slow tests/test_rung1.py tests/test_rung4.py`, PyPy, as CI's corpus job): pass, 65 s.
 Neither host selects SDRAM (rung 1's harness keeps the reset BCR1; rung 4's CPS3
