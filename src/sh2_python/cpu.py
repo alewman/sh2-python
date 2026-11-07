@@ -130,6 +130,20 @@ def _build_tables() -> tuple[list[str], list[Plan], list[int], list[int], bytear
 _NAMES, _PLANS, _LOAD_DEST, _USES, _SLOT_ILLEGAL, _BLOCKS = _build_tables()
 
 
+class _LazyTable:
+    """The dispatch table, built on a class's first read and then stored on that class.
+
+    step() calls ``_table[op](self, op)``: one list of plain functions per class, so a
+    subclass that overrides a handler gets its own. It is built here, not in
+    ``__init__``, because a chip unpickled in a new process never runs ``__init__``.
+    """
+
+    def __get__(self, chip: object, owner: type) -> list:
+        table = [getattr(owner, name) for name in _NAMES]
+        owner._table = table  # type: ignore[attr-defined]  # replaces this descriptor
+        return table
+
+
 class SH7604(
     TransferMixin,
     ArithMixin,
@@ -162,6 +176,13 @@ class SH7604(
     The constructor does not reset the chip: call :meth:`reset`, which reads PC and
     R15 through ``read``, when the board is ready to answer.
     """
+
+    _table: list = _LazyTable()  # type: ignore[assignment]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        if "_table" not in cls.__dict__:
+            cls._table = _LazyTable()  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -251,12 +272,7 @@ class SH7604(
         self.read_onchip = self._module_read
         self.write_onchip = self._module_write
 
-        # Dispatch and timing tables.
-        cls = type(self)
-        if "_table" not in cls.__dict__:
-            # One list of plain functions per class, built once: step() calls
-            # ``_table[op](self, op)``, so constructing a chip costs no table build.
-            cls._table = [getattr(cls, name) for name in _NAMES]
+        # Timing tables (the dispatch table is the class's: _LazyTable).
         self._slot_illegal = _SLOT_ILLEGAL
         self._blocks_interrupt = _BLOCKS
         self._plans = _PLANS

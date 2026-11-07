@@ -280,3 +280,36 @@ def test_state_round_trip():
     chip.step()
     chip.state = saved
     assert chip.capture_state() == saved
+
+
+def test_the_dispatch_table_is_one_per_class():
+    from sh2_python import SH7604
+
+    class Traced(SH7604):
+        pass
+
+    first, second = make([0x0009]).chip, make([0x0009]).chip
+    assert first._table is second._table and len(first._table) == 0x10000
+    assert Traced._table is not SH7604._table and "_table" in Traced.__dict__
+
+
+def test_an_unpickled_chip_steps_in_a_new_process():
+    # A process that unpickles a chip never runs __init__; the table must still come.
+    import os
+    import pickle
+    import subprocess
+    import sys
+
+    harness = make([0x0009] * 8)  # NOP
+    data = pickle.dumps(harness)
+    script = (
+        "import pickle, sys\n"
+        "harness = pickle.loads(sys.stdin.buffer.read())\n"
+        "for _ in range(3):\n"
+        "    harness.chip.step()\n"
+    )
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}
+    done = subprocess.run(
+        [sys.executable, "-c", script], input=data, env=env, capture_output=True, check=False
+    )
+    assert done.returncode == 0, done.stderr.decode()
