@@ -1,0 +1,61 @@
+sh2-python
+Copyright (c) 2026 alewman. Licensed under the MIT licence (LICENSE).
+
+This repository contains no code copied or transcribed from GPL, LGPL,
+non-commercial or unlicensed sources. MAME's GPL files, Mednafen, jgenesis,
+Ymir, Kronos, Yabause, PicoDrive and srg320's MiSTer RTL may only be run as
+closed boxes (docs/provenance.md). The jgenesis harness in
+validation/jgenesis_harness is our source, but the binary it builds links
+jgenesis' GPL-3.0 `sh2-emu`; it is built under reference/build and never
+distributed.
+
+Permissive material it draws on, with the notices those licences require:
+
+1. MAME (https://github.com/mamedev/mame), mame0285, files under the
+   BSD 3-Clause licence, read and cited for facts and formats, nothing
+   copied: src/devices/cpu/sh/sh7604.cpp (the DIVU register map and its
+   mirrors; its divide results, cited as a second opinion), sh_dasm.cpp (the
+   disassembler's number format), sh2.cpp and sh.cpp (cited behaviour).
+   Copyright-holders: Juergen Buchmueller, R. Belmont.
+
+   BSD 3-Clause License. Redistribution and use in source and binary forms,
+   with or without modification, are permitted provided that the following
+   conditions are met: (1) Redistributions of source code must retain the
+   above copyright notice, this list of conditions and the following
+   disclaimer. (2) Redistributions in binary form must reproduce the above
+   copyright notice, this list of conditions and the following disclaimer in
+   the documentation and/or other materials provided with the distribution.
+   (3) Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from this
+   software without specific prior written permission. THIS SOFTWARE IS
+   PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS
+   OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+   WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+   DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+   CONSEQUENTIAL DAMAGES ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+   EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+2. ares (https://github.com/ares-emulator/ares), 9408cb43d494, ISC: its
+   SH7604 sources are cited in docs/undocumented-behavior.md and
+   docs/validation.md, and one of its source comments is quoted (U15).
+   Copyright (c) 2004-2025 ares team, Near et al. Permission to use, copy,
+   modify, and/or distribute this software for any purpose with or without
+   fee is hereby granted, provided that the above copyright notice and this
+   permission notice appear in all copies. THE SOFTWARE IS PROVIDED "AS IS"
+   AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE
+   INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO
+   EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR
+   CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF
+   USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+   OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+   PERFORMANCE OF THIS SOFTWARE.
+
+3. J.R. Dunkley (board research XeD), "Cache, Bus, Interrupt Order and
+   Slowdown on a CPS3" and its companion data, Zenodo record 23435894,
+   CC-BY-4.0: validation/rung4/dn_p2.json is extracted from that data
+   (scripts/extract_dn_rung4.py) and attributed in the file.
+
+Cited sources (manuals used for facts): the Hitachi SH-1/SH-2 Programming
+Manual (PM), the SH7604 Hardware Manual (HM), the Renesas SH-1/SH-2/SH-DSP
+Software Manual (SWM).

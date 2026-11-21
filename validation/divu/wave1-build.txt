@@ -1,0 +1,35 @@
+32 normal 100/7                          H=00000002 L=0000000E CR=0 DVDNT=0000000E states=39
+32 normal -100/7                         H=FFFFFFFE L=FFFFFFF2 CR=0 DVDNT=FFFFFFF2 states=39
+32 by0 +5                                H=00000000 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+32 by0 +5 ie                             H=00000000 L=0000002F CR=3 DVDNT=0000002F states=6
+32 by0 -5                                H=FFFFFFFF L=80000000 CR=1 DVDNT=80000000 states=6
+32 by0 -5 ie                             H=FFFFFFFF L=FFFFFFD8 CR=3 DVDNT=FFFFFFD8 states=6
+32 by0 0                                 H=00000000 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+32 by0 0x7FFFFFFF                        H=00000003 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+32 by0 0x80000000                        H=FFFFFFFC L=80000000 CR=1 DVDNT=80000000 states=6
+32 by0 0x12345678                        H=00000000 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+32 by0 0x12345678 ie                     H=00000000 L=91A2B3C7 CR=3 DVDNT=91A2B3C7 states=6
+32 min/-1                                H=00000000 L=80000000 CR=0 DVDNT=80000000 states=39
+32 min/-1 ie                             H=00000000 L=80000000 CR=2 DVDNT=80000000 states=39
+64 normal 1e12/7                         H=000006E4 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+64 normal -1e12/7                        H=FFFFF91B L=80000000 CR=1 DVDNT=80000000 states=6
+64 ovf 2^60/2                            H=7FFFFFE4 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+64 ovf 2^60/2 ie                         H=7FFFFFE4 L=00000007 CR=3 DVDNT=00000007 states=6
+64 ovf -2^60/2                           H=8000001C L=80000000 CR=1 DVDNT=80000000 states=6
+64 ovf -2^60/2 ie                        H=8000001C L=00000000 CR=3 DVDNT=00000000 states=6
+64 ovf 2^60/-2                           H=7FFFFFE4 L=80000000 CR=1 DVDNT=80000000 states=6
+64 ovf 2^32/1                            H=FFFFFFFE L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+64 ovf 2^31/1                            H=FFFFFFFE L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+64 ovf 0x123456789ABC/3                  H=00009178 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+64 ovf 0x123456789ABC/3 ie               H=00009178 L=B3C4D5E7 CR=3 DVDNT=B3C4D5E7 states=6
+64 ovf -0x123456789ABC/-3                H=FFFF6E87 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+64 exact min -2^31/1                     H=FFFFFFFE L=80000000 CR=1 DVDNT=80000000 states=6
+64 exact min 2^31/-1                     H=FFFFFFFE L=80000000 CR=1 DVDNT=80000000 states=6
+64 exact min 2^32/-2                     H=FFFFFFFC L=80000000 CR=1 DVDNT=80000000 states=6
+64 near min (-2^31-1)/1                  H=00000001 L=80000000 CR=1 DVDNT=80000000 states=6
+64 neg/neg max+rem (-(2^31-1)*2-1)/-2    H=FFFFFFFF L=7FFFFFFF CR=0 DVDNT=7FFFFFFF states=39
+64 neg/neg (-2^32+1)/-2                  H=FFFFFFFF L=7FFFFFFF CR=0 DVDNT=7FFFFFFF states=39
+64 by0 0x1234_56789ABC                   H=000091A2 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6
+64 by0 0x1234_56789ABC ie                H=000091A2 L=B3C4D5E7 CR=3 DVDNT=B3C4D5E7 states=6
+64 by0 -1                                H=FFFFFFFF L=80000000 CR=1 DVDNT=80000000 states=6
+64 by0 0                                 H=00000000 L=7FFFFFFF CR=1 DVDNT=7FFFFFFF states=6

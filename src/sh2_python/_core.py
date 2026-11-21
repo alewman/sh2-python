@@ -1,0 +1,758 @@
+# SPDX-License-Identifier: MIT
+"""The chip's core machinery: stepping, delay slots, exceptions, and every memory access.
+
+``step()`` runs one instruction, or one exception sequence, and returns its states.
+The rules it encodes, with their sources:
+
+- **PC.** ``self.pc`` is the address of the next instruction to run. While a handler
+  runs, ``self.pc`` is its address + 2, so the PC that PC-relative forms and branch
+  displacements use (the instruction's address + 4, PM 6.x) is ``self.pc + 2``.
+- **Delay slots.** A delayed branch (``BRA``, ``BSR``, ``BRAF``, ``BSRF``, ``JMP``,
+  ``JSR``, ``RTS``, ``RTE``, and ``BT/S``/``BF/S`` when taken) leaves ``pc`` on its slot
+  and stores the target in ``delay_target``; the next ``step()`` runs the slot with
+  ``self.pc`` set to the target, so a PC-relative slot instruction sees the target + 2
+  (U1, PM 6.x: "the PC must point to ... the branch destination + 2"), then continues
+  at the target. Branch registers are read before the slot runs (PM 4.1.5). No
+  interrupt or address error is accepted between a branch and its slot (HM 4.6.1); a
+  slot holding undefined code or a PC-changing instruction is the illegal slot
+  exception, saving the branch target (HM 4.5.3, U3). A not-taken ``BT/S``/``BF/S``
+  makes no slot (U2: the three emulators; unverified).
+- **Interrupts** are accepted between instructions when their level exceeds SR.I3-I0
+  (HM 4.4, 5.4), but not right after a delayed branch nor after ``LDC``, ``LDC.L``,
+  ``STC``, ``STC.L``, ``LDS``, ``LDS.L``, ``STS``, ``STS.L`` (HM 4.6, table 4.10). IRL is
+  sampled each boundary with no noise-canceller latency (U4's build choice).
+- **Exceptions** push SR then PC on R15's stack and read the vector at VBR + 4n
+  (HM 4.4-4.5; PM 7.7.7: two MAs push, the third reads the vector).
+- **Memory.** Each CPU access is routed by A31-A29 (HM table 8.2): the cache area, the
+  cache-through area, the associative purge space, the address array, the data array,
+  and the on-chip modules at H'FFFFFE00-H'FFFFFFFF. External cycles go to the board's
+  callbacks through the BSC, split into port-width cycles (HM 7.4.1).
+- **The write buffer** (HM 7.11.2: "the bus state controller has one level of write
+  buffer"). A CPU write to external memory is taken by the buffer as soon as it is
+  empty and the CPU goes on one state later, while the BSC makes the write's cycles;
+  a second write waits until the first's cycles end, and every external read (a
+  cache-through read, a line fill, a fetch that misses, a DMA read) waits for them too
+  ("During reads, the CPU always has to wait"). Cache hits and on-chip module accesses
+  do not wait. A CCR write that arrives while a write is buffered takes effect when
+  that write's cycles end, and cache hits use the old lines meanwhile (U9: DN's
+  hardware values; C20). DMA writes are not buffered here (rung 5).
+- **Synchronous DRAM and refresh** (HM 7.5; bsc.py has the shapes). A read of an SDRAM
+  area is one burst, a write a single write, with the states the BSC gives by row and
+  bank; a line fill is one burst, still one callback per port cycle. Refresh requests
+  are made between external accesses, never inside one (HM 7.5.7: "after the access
+  cycle is completed"), and at step boundaries when the bus is idle; an access that
+  finds one under way waits for it.
+- **Address errors** (HM table 4.6): a misaligned word or longword access, an odd
+  instruction address, a fetch from on-chip module space, a byte access to
+  H'FFFFFF00-, a longword access to H'FFFFFE00-H'FFFFFEFF. The faulting access is not
+  made (a read gives 0: U15 leaves the access itself open) and the exception (vector 9)
+  is taken after the instruction completes (HM 4.3.2), saving the next instruction's
+  address; one pending after a delayed branch waits for the slot (HM 4.6.1).
+"""
+
+from collections.abc import Callable
+
+from sh2_python.bus import DATA, FETCH, FILL, FIRST, HIT, REFRESH, THROUGH, VECTOR, WRITE
+from sh2_python.cache import CCR_ID, CCR_OD
+
+ReadFunction = Callable[[int, int, int], int]
+WriteFunction = Callable[[int, int, int, int], None]
+
+M32 = 0xFFFFFFFF
+NEVER = 1 << 62
+SR_MASK = 0x3F3  # M Q I3-I0 S T: the bits that exist (PM 2.2; "the other bits read 0")
+
+VECTOR_ILLEGAL = 4  # general illegal instruction (HM table 4.3)
+VECTOR_SLOT_ILLEGAL = 6
+VECTOR_ADDRESS_ERROR = 9
+VECTOR_NMI = 11
+IRL_VECTOR_BASE = 64  # IRL1 -> 64, IRL2-3 -> 65, ... IRL14-15 -> 71 (HM table 5.3)
+
+WIDTH_MASK = {8: 0xFF, 16: 0xFFFF, 32: M32}
+
+
+class CoreMixin:
+    """Stepping, exceptions and memory; the instruction families are mixed in beside it."""
+
+    # Set by the chip class (cpu.py).
+    _table: list
+    _base_states: list[int]
+    _slot_illegal: bytearray
+    _blocks_interrupt: bytearray
+
+    # -- stepping -----------------------------------------------------------------
+
+    def step(self) -> int:
+        """Run one instruction or one exception sequence; return the states it took.
+
+        The states are those the pipeline's cursor moved (pipeline.py): over a run they
+        add up to PM 7.3's count, the intervals between EX stages.
+        """
+        start = self.clock
+        if self.pc != self._p_pc:
+            # The host moved the PC (a test, a replay's resync): the pipeline's fetches
+            # were for the old stream.
+            self._pipeline_restart()
+        if start >= self._next_event:
+            self._service_events()
+        if self.dmac.active:
+            self.dmac.run()
+            if self.clock != start:
+                # The DMAC's cycles held the bus: the CPU's slots wait for them.
+                self._p_start += self.clock - start
+        target = self.delay_target
+        if target < 0:
+            if self._address_error:
+                self._address_error = False
+                self._exception(VECTOR_ADDRESS_ERROR, self.pc, -1, "address_error")
+                self._p_pc = self.pc
+                return self.clock - start
+            if self.nmi != self._nmi_seen:
+                self._nmi_edge()
+            if not self._no_interrupt and self._interrupt_due():
+                self._take_interrupt()
+                self._p_pc = self.pc
+                return self.clock - start
+            self._no_interrupt = False
+            if self.sleeping:
+                # SLEEP: the CPU waits for an interrupt (HM 14.3.1). Idle in short
+                # slices so the board can raise IRL between them; the pipeline waits.
+                idle = min(max(self._next_event - self.clock, 1), 16)
+                self._p_start += idle
+                self.clock = self._p_start
+                return self.clock - start
+            pc = self.pc
+            if pc & 1 or pc >= 0xFFFFFE00:
+                # An odd address, or a fetch from on-chip module space (HM table 4.6):
+                # nothing is executed; the saved PC is that address (HM 4.3.2).
+                self._exception(VECTOR_ADDRESS_ERROR, pc, -1, "address_error")
+                self._p_pc = self.pc
+                return self.clock - start
+            self._advance(self._p_next_ex - 1)  # through this instruction's IF
+            op = self._opcode(pc)
+            self.pc = pc + 2
+            plan = self._plans[op]
+            self._issue(plan, self._load_dest[op], self._uses[op], pc)
+            self._table[op](self, op)
+            self._retire(plan, pc + 2)
+            self._no_interrupt = self._blocks_interrupt[op]
+        else:
+            # The delay slot (HM 4.6.1: no interrupt or address error between it and
+            # its branch).
+            pc = self.pc
+            self._advance(self._p_next_ex - 1)
+            op = self._opcode(pc)
+            self.delay_target = -1
+            if self._slot_illegal[op]:
+                # HM 4.5.3: decoded in the slot; the saved PC is the branch target.
+                self._exception(VECTOR_SLOT_ILLEGAL, target, -1, "illegal")
+                self._p_pc = self.pc
+                return self.clock - start
+            self.pc = target
+            plan = self._plans[op]
+            self._issue(plan, self._load_dest[op], self._uses[op], pc)
+            self._table[op](self, op)
+            self._retire(plan, target)
+            self._no_interrupt = self._blocks_interrupt[op]
+        self._p_pc = self.pc
+        return self.clock - start
+
+    def _service_events(self) -> None:
+        clock = self.clock
+        self.frt.run_until(clock)
+        self.wdt.run_until(clock)
+        self.bsc.run_until(clock)
+        if self.bsc.refresh_at <= clock:
+            self._refresh_idle()
+        self._reschedule()
+
+    def _reschedule(self) -> None:
+        self._next_event = min(self.frt.next_event(), self.wdt.next_event(), self.bsc.next_event())
+
+    def _stall(self, states: int) -> None:
+        """A module extends the current access by ``states`` (the DIVU, HM 10.4.1).
+
+        The access's MA lasts until the clock it leaves (pipeline.py ``_ma_close``).
+        """
+        self.clock += states
+
+    # -- interrupts -----------------------------------------------------------------
+
+    def _nmi_edge(self) -> None:
+        """NMI is edge-triggered; ICR.NMIE picks the edge (HM 5.2.1, 5.3.3)."""
+        level = self.nmi
+        self._nmi_seen = level
+        if bool(level) == self.intc.nmi_rising:
+            self._nmi_pending = True
+
+    def _interrupt_due(self) -> bool:
+        if self._nmi_pending:
+            return True
+        if self.replay_interrupts:
+            return self._injected is not None
+        mask = (self.sr >> 4) & 15
+        return self.irl > mask or self._onchip_level > mask
+
+    def _take_interrupt(self) -> None:
+        """Accept the highest request (HM 5.4): NMI, then IRL vs on-chip by level."""
+        self.sleeping = False
+        if self._nmi_pending:
+            self._nmi_pending = False
+            # NMI: level 16, I3-I0 set to 15 (HM 4.4.3).
+            self._exception(VECTOR_NMI, self.pc, 15, "interrupt")
+            return
+        if self.replay_interrupts:
+            level, vector = self._injected
+            self._injected = None
+            if vector < 0:
+                self._irl_exception(level)
+            else:
+                self._exception(vector, self.pc, level, "interrupt")
+            return
+        irl = self.irl
+        if irl >= self._onchip_level:
+            # IRL ranks above an on-chip source at the same level (HM table 5.4).
+            self._irl_exception(irl)
+        else:
+            self._exception(self._onchip_vector, self.pc, self._onchip_level, "interrupt")
+
+    def _irl_exception(self, level: int) -> None:
+        """An IRL interrupt: its auto-vector (HM table 5.3), or the bus's (ICR.VECMD = 1)."""
+        if self.intc.vecmd:
+            self._exception(0, self.pc, level, "interrupt", external=level)
+        else:
+            self._exception(IRL_VECTOR_BASE + (level >> 1), self.pc, level, "interrupt")
+
+    def inject_interrupt(self, level: int, vector: int = -1) -> None:
+        """Replay only: make the next boundary accept this interrupt.
+
+        A host that replays another emulator's trace (rung 2) sets
+        ``chip.replay_interrupts = True``, which stops IRL and the on-chip modules from
+        raising interrupts by themselves, and calls this where the trace took one.
+        ``vector`` -1 means an IRL auto-vector (or external vector) for ``level``. The
+        acceptance rules of HM 4.6 still apply: the interrupt waits for a boundary
+        where one may be taken.
+        """
+        self._injected = (level, vector)
+
+    def _exception(
+        self, vector: int, saved_pc: int, level: int, sequence: str, external: int = -1
+    ) -> None:
+        """An exception sequence in place of the next instruction (PM 7.7.7).
+
+        It takes the slots of PM figures 7.95-7.97 (``pipeline.PLANS[sequence]``): its
+        two pushes and the vector read are its MAs, and the handler's fetch is in the
+        slot of its last stage.
+        """
+        plan = self._exception_plans[sequence]
+        self._advance(self._p_next_ex - 1)
+        self._issue(plan, 0, 0, self.pc)
+        self._enter(vector, saved_pc, level, external)
+        self._retire(plan, -1)
+
+    def _enter(self, vector: int, saved_pc: int, level: int, external: int = -1) -> None:
+        """Exception entry (HM 4.3.2-4.5): push SR, push PC, fetch the vector, jump.
+
+        ``level`` >= 0 is written to SR.I3-I0 (interrupts; HM 4.4.3), -1 leaves it.
+        ``external`` >= 0 is an IRL level whose vector number comes from the bus
+        (ICR.VECMD = 1, HM 5.2.3): that read is made in the vector-read MA, before the
+        table read. The jump is not a delayed branch.
+        """
+        R = self.R
+        sr = self.sr
+        R[15] = (R[15] - 4) & M32
+        self._write32(R[15], sr)
+        R[15] = (R[15] - 4) & M32
+        self._write32(R[15], saved_pc)
+        if level >= 0:
+            self.sr = (sr & ~0xF0) | (level << 4)
+        if external >= 0:
+            if self._p_ma_left:
+                self._ma_next()
+            # External vector mode: A3-A0 carry the level, D7-D0 the vector number
+            # (HM 5.2.3, figure 5.4).
+            vector = self._bus_read(external, 8, VECTOR) & 0x7F
+        self.pc = self._read32((self.vbr + (vector << 2)) & M32)
+        self.delay_target = -1
+        self._no_interrupt = False
+        self._address_error = False
+
+    def _illegal(self, op: int) -> None:
+        """Undefined code outside a slot: general illegal instruction (HM 4.5.4).
+
+        The saved PC is the start address of the undefined code. Undefined codes carry
+        the illegal sequence's plan in the decode tables (PM figure 7.97), so the step
+        has already given it its slots; this only enters the handler.
+        """
+        self._enter(VECTOR_ILLEGAL, (self.pc - 2) & M32, -1)
+
+    # -- instruction fetch ------------------------------------------------------------
+
+    def _read_fetch(self, address: int) -> int:
+        space = address >> 29
+        if space == 0:
+            if self._ccr_at and self.clock >= self._ccr_at:
+                self._settle_ccr()
+            if self.cache.enabled:
+                return self._cache_read(address, 32, FETCH)
+            if self.observe is not None:
+                self.observe(address, 32, FETCH | THROUGH)
+            return self._bus_read(address, 32, FETCH | THROUGH)
+        if space == 1:
+            if self.observe is not None:
+                self.observe(address, 32, FETCH | THROUGH)
+            return self._bus_read(address, 32, FETCH | THROUGH)
+        if space == 6:
+            return self.cache.get(address & 0xFFC, 32)
+        # The purge, address-array, reserved and on-chip spaces hold no code: a fetch
+        # there (an overrun past the end of code, or a jump into them, which faults
+        # when it executes, HM table 4.6) reads nothing and touches no module.
+        return 0
+
+    # -- CPU data accesses ------------------------------------------------------------
+
+    def _read8(self, address: int) -> int:
+        return self._read(address, 8)
+
+    def _read16(self, address: int) -> int:
+        if address & 1:
+            self._address_error = True
+            return 0
+        return self._read(address, 16)
+
+    def _read32(self, address: int) -> int:
+        if address & 3:
+            self._address_error = True
+            return 0
+        return self._read(address, 32)
+
+    def _write8(self, address: int, value: int) -> None:
+        self._write(address, 8, value & 0xFF)
+
+    def _write16(self, address: int, value: int) -> None:
+        if address & 1:
+            self._address_error = True
+            return
+        self._write(address, 16, value & 0xFFFF)
+
+    def _write32(self, address: int, value: int) -> None:
+        if address & 3:
+            self._address_error = True
+            return
+        self._write(address, 32, value & M32)
+
+    def _read(self, address: int, width: int) -> int:
+        if self._p_ma_left:
+            self._ma_next()  # this access is the instruction's next MA (pipeline.py)
+        space = address >> 29
+        if space == 0:
+            if self._ccr_at and self.clock >= self._ccr_at:
+                self._settle_ccr()
+            if self.cache.enabled:
+                return self._cache_read(address, width, DATA)
+            if self.observe is not None:
+                self.observe(address, width, THROUGH)
+            return self._bus_read(address, width, THROUGH)
+        if space == 1:
+            if self.observe is not None:
+                self.observe(address, width, THROUGH)
+            return self._bus_read(address, width, THROUGH)
+        if space == 7:
+            return self._onchip_read(address, width)
+        if space == 6:
+            if self.observe is not None:
+                self.observe(address, width, DATA)
+            return self.cache.get(address & 0xFFF, width)
+        if space == 3:
+            if width != 32:
+                return 0  # longword only (HM 8.4.9); other sizes undefined: read 0
+            return self.cache.read_address_array(address)
+        # U10, HYPOTHESIS (own choice): HM 8.4.7 documents only writes to the associative
+        # purge space (H'40000000-), so a read purges nothing and reads 0, like the
+        # reserved spaces (H'80000000-H'BFFFFFFF, HM table 7.3) and every other
+        # undocumented read in this core.
+        return 0
+
+    def _write(self, address: int, width: int, value: int) -> None:
+        if self._p_ma_left:
+            self._ma_next()
+        space = address >> 29
+        if space == 0:
+            if self.observe is not None:
+                self.observe(address, width, WRITE)
+            if self._ccr_at and self.clock >= self._ccr_at:
+                self._settle_ccr()
+            if self.cache.enabled:
+                self.cache.write_hit(address, width, value)  # write-through (HM 8.4.2)
+            self._bus_write(address, width, value, THROUGH if not self.cache.enabled else DATA)
+        elif space == 1:
+            if self.observe is not None:
+                self.observe(address, width, WRITE | THROUGH)
+            self._bus_write(address, width, value, THROUGH)
+        elif space == 7:
+            self._onchip_write(address, width, value)
+        elif space == 6:
+            if self.observe is not None:
+                self.observe(address, width, WRITE)
+            self.cache.put(address & 0xFFF, width, value)
+        elif space == 3:
+            if width == 32:
+                self.cache.write_address_array(address, value)
+        elif space == 2:
+            self.cache.purge_line(address)  # DOC: HM 8.4.7, table 8.2 (A31-A29 = 010)
+        # H'A0000000 (A31-A29 = 101) is reserved (HM table 7.3, absent from table 8.2):
+        # a write there does nothing (U10, HYPOTHESIS).
+
+    def _cache_read(self, address: int, width: int, kind: int) -> int:
+        """A read in the cache area with CCR.CE = 1 (HM 8.4.1)."""
+        cache = self.cache
+        entry = (address >> 4) & 63
+        way = cache.lookup(address)
+        if way >= 0:
+            cache.touch(entry, way)
+            if self.observe is not None:
+                self.observe(address, width, kind | HIT)
+            return cache.get((way << 10) | (entry << 4) | (address & 15), width)
+        if self.observe is not None:
+            self.observe(address, width, kind)
+        if self.clock < self._wb_end:
+            # A miss reads the bus, so it waits for a buffered write first (HM 7.11.2),
+            # and a CCR write queued behind that write lands before the fill (U9).
+            self.clock = self._wb_end
+            if self._ccr_at:
+                self._settle_ccr()
+                if not cache.enabled:
+                    return self._bus_read(address, width, kind | THROUGH)
+                way = cache.lookup(address)
+                if way >= 0:  # not purged after all: the CCR write kept the cache
+                    cache.touch(entry, way)
+                    return cache.get((way << 10) | (entry << 4) | (address & 15), width)
+        if cache.ccr & (CCR_ID if kind & FETCH else CCR_OD):
+            # ID/OD: "the missed address data is read and directly transferred to the
+            # CPU" without replacing (HM 8.4.5).
+            return self._bus_read(address, width, kind)
+        way = cache.victim(entry)
+        base = cache.allocate(address, way)
+        line = address & 0x1FFFFFF0
+        area = (line >> 25) & 3
+        # The fill is one access: no refresh between its cycles (HM 7.5.7).
+        if self.clock >= self._bsc_due:
+            self._refresh_before()
+        if self._sdram[area]:
+            self._sdram_fill(base, line, address, kind, area)
+        else:
+            port = self._ports[area]
+            flag = FIRST
+            # HM 8.4.1, figure 8.4: four longwords from address + 4, wrapping in the
+            # line, so the one holding the requested data comes last.
+            for step in (4, 8, 12, 0):
+                offset = ((address & 0xC) + step) & 0xC
+                cycle = line | offset
+                fill = kind | FILL | flag
+                if port == 32:
+                    value = self._cycle_read(cycle, 32, fill, area)
+                else:
+                    value = 0
+                    for i in range(32 // port):
+                        part = self._cycle_read(cycle + i * (port >> 3), port, fill, area)
+                        value = (value << port) | part
+                cache.put(base | offset, 32, value)
+                flag = 0
+        if self.clock >= self._bsc_due:
+            self._refresh_after()
+        return cache.get(base | (address & 15), width)
+
+    # -- the external bus (through the BSC) -------------------------------------------
+
+    def _bus_read(self, address: int, width: int, kind: int) -> int:
+        """One CPU or DMAC read on the external bus, split into port-width cycles.
+
+        It waits for a buffered write's cycles to end (HM 7.11.2: the bus is the
+        write's; "During reads, the CPU always has to wait for the end of the
+        operation").
+        """
+        if self.clock < self._wb_end:
+            self.clock = self._wb_end
+        if self.clock >= self._bsc_due:
+            self._refresh_before()
+        address &= 0x1FFFFFFF
+        area = (address >> 25) & 3
+        if self._sdram[area]:
+            value = self._sdram_read(address, width, kind, area)
+        else:
+            port = self._ports[area]
+            if width <= port:
+                value = self._cycle_read(address, width, kind, area)
+            else:
+                step = port >> 3
+                value = 0
+                for i in range(width // port):
+                    part = self._cycle_read(address + i * step, port, kind, area)
+                    value = (value << port) | part
+        if self.clock >= self._bsc_due:
+            self._refresh_after()
+        return value
+
+    def _cycle_read(self, address: int, width: int, kind: int, area: int) -> int:
+        self.wait = 0
+        value = self.read(address, width, kind) & WIDTH_MASK[width]
+        # The cycle lasts the BSC's states plus the board's WAIT states; the IF or MA
+        # that made it lasts as long as its cycles (PM 7.2.3).
+        self.clock += self._cycle_states[area] + self.wait
+        return value
+
+    def _bus_write(self, address: int, width: int, value: int, kind: int) -> None:
+        """One CPU write, through the BSC's one-level write buffer (HM 7.11.2).
+
+        The buffer takes the write once the previous one's cycles have ended; "the CPU
+        is notified that the write is completed without waiting for the actual writing
+        ... to end", so the access (its MA) lasts until the buffer takes it plus one
+        state, and the BSC makes the write's cycles from that state on (the callbacks
+        see ``chip.clock`` at each cycle's start). ``_wb_end`` is where they end.
+        """
+        if self.clock < self._wb_end:
+            self.clock = self._wb_end  # the buffer is full: wait for its write to end
+            if self._ccr_at:
+                self._settle_ccr()
+        taken = self.clock
+        self._write_cycles(address, width, value, kind)
+        self._wb_end = self.clock
+        self.clock = taken + 1
+
+    def _settle_ccr(self) -> None:
+        """The CCR write that waited behind a buffered write takes effect (U9, C20)."""
+        self._ccr_at = 0
+        self.cache.write_ccr(self._ccr_value)
+
+    def _write_cycles(self, address: int, width: int, value: int, kind: int) -> None:
+        """The port-width write cycles of one access, back to back from ``chip.clock``."""
+        if self.clock >= self._bsc_due:
+            self._refresh_before()
+        address &= 0x1FFFFFFF
+        area = (address >> 25) & 3
+        cycle = self._sdram_write if self._sdram[area] else self._cycle_write
+        port = self._ports[area]
+        if width <= port:
+            cycle(address, width, value, kind, area)
+        else:
+            step = port >> 3
+            count = width // port
+            mask = WIDTH_MASK[port]
+            for i in range(count):
+                part = (value >> (port * (count - 1 - i))) & mask
+                cycle(address + i * step, port, part, kind, area)
+        if self.clock >= self._bsc_due:
+            self._refresh_after()
+
+    def _cycle_write(self, address: int, width: int, value: int, kind: int, area: int) -> None:
+        self.wait = 0
+        self.write(address, width, value, kind)
+        self.clock += self._cycle_states[area] + self.wait
+
+    # -- synchronous DRAM (HM 7.5) and refresh (HM 7.5.7) ---------------------------------
+
+    def _sdram_burst(self, address: int, calls: list, area: int) -> list[int]:
+        """One burst read (HM 7.5.3, 7.5.4): ``calls`` are its port cycles, each a
+        callback, ``(address, width, kind)``. The first carries the burst's command
+        states, the last the data cycles the access does not use (figure 7.17)."""
+        bsc = self.bsc
+        start, command = bsc.read_start(area, address, self.clock)
+        self.clock = start
+        states = self._cycle_states
+        unused = bsc.burst[area] - len(calls)
+        last = len(calls) - 1
+        values = []
+        for i, (cycle, width, kind) in enumerate(calls):
+            length = 1
+            if i == 0:
+                length += command
+            if i == last:
+                length += unused
+            states[area] = length
+            self.wait = 0
+            values.append(self.read(cycle, width, kind) & WIDTH_MASK[width])
+            self.clock += length + self.wait
+        bsc.read_end(area, address, self.clock)
+        return values
+
+    def _sdram_read(self, address: int, width: int, kind: int, area: int) -> int:
+        """A cache-through, ID/OD, fetch or DMA read: a whole burst for its 1-4 bytes."""
+        port = self._ports[area]
+        if width <= port:
+            return self._sdram_burst(address, [(address, width, kind)], area)[0]
+        step = port >> 3
+        calls = [(address + i * step, port, kind) for i in range(width // port)]
+        value = 0
+        for part in self._sdram_burst(address, calls, area):
+            value = (value << port) | part
+        return value
+
+    def _sdram_fill(self, base: int, line: int, address: int, kind: int, area: int) -> None:
+        """A line fill from synchronous DRAM: one burst, in HM 8.4.1's wrap order (HM
+        7.5.3: "reading starts from the address + 4")."""
+        port = self._ports[area]
+        per = 32 // port
+        offsets = [((address & 0xC) + step) & 0xC for step in (4, 8, 12, 0)]
+        step = port >> 3
+        calls = [
+            (line | offset + i * step, port, kind | FILL | (FIRST if j == 0 else 0))
+            for j, offset in enumerate(offsets)
+            for i in range(per)
+        ]
+        values = self._sdram_burst(line, calls, area)
+        for j, offset in enumerate(offsets):
+            word = 0
+            for part in values[j * per : (j + 1) * per]:
+                word = (word << port) | part
+            self.cache.put(base | offset, 32, word)
+
+    def _sdram_write(self, address: int, width: int, value: int, kind: int, area: int) -> None:
+        """One single write (HM 7.5.5, 7.5.6)."""
+        bsc = self.bsc
+        start, length = bsc.write_cycle(area, address, self.clock)
+        self.clock = start
+        self._cycle_states[area] = length
+        self.wait = 0
+        self.write(address, width, value, kind)
+        self.clock += length + self.wait
+        bsc.write_end(area, address, self.clock)
+
+    def _make_refresh(self, free: int) -> None:
+        """One auto-refresh cycle, at the request or once the bus is free at ``free``,
+        through ``read`` with ``REFRESH`` (HM 7.5.7). ``chip.clock`` is the cycle's start
+        during the call and is put back after it."""
+        bsc = self.bsc
+        start, length = bsc.refresh_cycle(max(bsc.refresh_at, free))
+        cursor = self.clock
+        area = 2 if bsc.sdram[2] else 3
+        self.clock = start
+        self._cycle_states[area] = length
+        self.wait = 0
+        self.read(bsc.refresh_address(), self._ports[area], REFRESH)
+        end = start + length + self.wait
+        bsc.refresh_end(end)
+        bsc.refresh_served(start)
+        self._refresh_end = end
+        self.clock = cursor
+
+    def _refresh_before(self) -> None:
+        """At an access's start, the BSC wants attention: it waits for a refresh under
+        way, and refresh requests due by now are made first."""
+        if self.clock < self._refresh_end:
+            self.clock = self._refresh_end
+        bsc = self.bsc
+        wanted = self.clock  # fixed: a refresh longer than the period cannot run away
+        while bsc.refresh_at <= wanted:
+            self._make_refresh(max(self._wb_end, self._refresh_end))
+        if self.clock < self._refresh_end:
+            self.clock = self._refresh_end
+        self._bsc_due = bsc.refresh_at
+
+    def _refresh_after(self) -> None:
+        """At an access's end: a request made during it is made now, and the next
+        access will wait for it (``_bsc_due`` = 0 sends it through ``_refresh_before``)."""
+        if self.bsc.refresh_at <= self.clock:
+            self._make_refresh(self.clock)
+            self._bsc_due = 0
+
+    def _refresh_idle(self) -> None:
+        """Requests due by ``chip.clock`` while the bus is idle (a step boundary, a BSC
+        register write) are made where they fell due."""
+        bsc = self.bsc
+        while bsc.refresh_at <= self.clock:
+            self._make_refresh(max(self._wb_end, self._refresh_end))
+        self._bsc_due = 0 if self._refresh_end > self.clock else bsc.refresh_at
+
+    # -- on-chip modules -----------------------------------------------------------------
+
+    def _onchip_read(self, address: int, width: int) -> int:
+        if address < 0xFFFFFE00:
+            return 0  # reserved I/O space (HM table 7.3); the SDRAM mode space reads nothing
+        if (width == 8 and address >= 0xFFFFFF00) or (width == 32 and address < 0xFFFFFF00):
+            self._address_error = True  # HM table 4.6: wrong size for that half
+            return 0
+        if self.observe is not None:
+            self.observe(address, width, DATA)
+        module = self._onchip[address - 0xFFFFFE00]
+        if module is None:
+            return 0
+        return self.read_onchip(module, address, width)
+
+    def _onchip_write(self, address: int, width: int, value: int) -> None:
+        if address < 0xFFFFFE00:
+            return  # reserved; the SDRAM mode-register space is not modelled (BSC note)
+        if (width == 8 and address >= 0xFFFFFF00) or (width == 32 and address < 0xFFFFFF00):
+            self._address_error = True
+            return
+        if self.observe is not None:
+            self.observe(address, width, WRITE)
+        module = self._onchip[address - 0xFFFFFE00]
+        if module is not None:
+            self.write_onchip(module, address, width, value)
+
+    @staticmethod
+    def _module_read(module: object, address: int, width: int) -> int:
+        """The default ``read_onchip``: the module answers."""
+        return module.read(address, width)
+
+    @staticmethod
+    def _module_write(module: object, address: int, width: int, value: int) -> None:
+        module.write(address, width, value)
+
+    # -- DMA accesses (the DMAC's side of the internal bus) -------------------------------
+
+    def _dma_read(self, address: int, width: int, kind: int) -> int:
+        space = address >> 29
+        if space in (0, 1):
+            return self._bus_read(address, width, kind)  # DMA never uses the cache
+        if space == 7 and address >= 0xFFFFFE00:
+            module = self._onchip[address - 0xFFFFFE00]
+            return 0 if module is None else self.read_onchip(module, address, width)
+        if space == 6:
+            return self.cache.get(address & 0xFFF, width)
+        return 0
+
+    def _dma_read_unit(self, address: int, kind: int) -> list[int]:
+        """A 16-byte unit's four longwords. From synchronous DRAM they are one burst in
+        address order (HM 7.5.3: "the access order follows the address order in 16-byte
+        data transfers by the DMAC")."""
+        if address >> 29 in (0, 1) and self._sdram[(address >> 25) & 3]:
+            if self.clock < self._wb_end:
+                self.clock = self._wb_end
+            if self.clock >= self._bsc_due:
+                self._refresh_before()
+            address &= 0x1FFFFFFF
+            area = (address >> 25) & 3
+            port = self._ports[area]
+            per = 32 // port
+            calls = [(address + i * (port >> 3), port, kind) for i in range(4 * per)]
+            values = self._sdram_burst(address, calls, area)
+            if self.clock >= self._bsc_due:
+                self._refresh_after()
+            words = []
+            for j in range(4):
+                word = 0
+                for part in values[j * per : (j + 1) * per]:
+                    word = (word << port) | part
+                words.append(word)
+            return words
+        return [self._dma_read(address + 4 * i, 32, kind) for i in range(4)]
+
+    def _dma_write(self, address: int, width: int, value: int, kind: int) -> None:
+        space = address >> 29
+        if space in (0, 1):
+            # No snooping: DMA writes do not update the cache (HM 7.11.2, 8.5.2). Not
+            # buffered here: the DMAC's cycles hold the bus until they end (rung 5).
+            if self.clock < self._wb_end:
+                self.clock = self._wb_end
+            self._write_cycles(address, width, value, kind)
+            self._wb_end = self.clock
+        elif space == 7 and address >= 0xFFFFFE00:
+            module = self._onchip[address - 0xFFFFFE00]
+            if module is not None:
+                self.write_onchip(module, address, width, value)
+        elif space == 6:
+            self.cache.put(address & 0xFFF, width, value)
+
+
+__all__ = ["CoreMixin", "ReadFunction", "WriteFunction"]
