@@ -31,7 +31,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MAME = "/usr/games/mame"
 MAME_VERSION = "0.285"
-ROMPATH = Path("/data/emu/source/myrient.erista.me/files/MAME/ROMs (non-merged)")
+# The local MAME romset folder: MAME_ROMPATH (unset: the check reports the romset missing).
+ROMPATH = Path(os.environ["MAME_ROMPATH"]) if os.environ.get("MAME_ROMPATH") else None
 MAME_32X_SET = "32x.zip"
 MEDNAFEN_TARBALL = ROOT / "reference" / "archives" / "mednafen-1.32.1.tar.xz"
 MEDNAFEN_BUILD = ROOT / "reference" / "build" / "mednafen-1.32.1"
@@ -62,6 +63,9 @@ def check_mame() -> int:
     if not version.startswith(MAME_VERSION):
         print(f"MAME: version {version!r}, the recipe was verified on {MAME_VERSION}")
         problems += 1
+    if ROMPATH is None:
+        print(f"MAME {version}: MAME_ROMPATH is not set; mame_trace.py needs the 32x romset")
+        return problems + 1
     romset = ROMPATH / MAME_32X_SET
     if romset.exists():
         with zipfile.ZipFile(romset) as archive:

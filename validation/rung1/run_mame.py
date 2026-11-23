@@ -23,8 +23,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 MAME = "/usr/games/mame"
-ROMPATH = "/data/emu/source/myrient.erista.me/files/MAME/ROMs (non-merged)"
-CART = "/data/emu/roms/sega32x/BC Racers (USA).zip"
+# The local MAME romset (MAME_ROMPATH) and No-Intro sets (NO_INTRO_DIR); --rompath, --cart override.
+ROMPATH = os.environ.get("MAME_ROMPATH")
+NO_INTRO_DIR = os.environ.get("NO_INTRO_DIR")
+CART = Path(NO_INTRO_DIR, "Sega - 32X", "BC Racers (USA).zip") if NO_INTRO_DIR else None
 
 
 def extract_cart(cart: Path, into: Path) -> Path:
@@ -42,10 +44,14 @@ def main() -> int:
     parser.add_argument("cases", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--shards", type=int, default=4)
-    parser.add_argument("--cart", type=Path, default=Path(CART))
+    parser.add_argument("--cart", type=Path, default=CART)
     parser.add_argument("--mame", default=MAME)
     parser.add_argument("--rompath", default=ROMPATH)
     args = parser.parse_args()
+    if not args.rompath:
+        raise SystemExit("set MAME_ROMPATH to the MAME romset folder (or pass --rompath)")
+    if args.cart is None:
+        raise SystemExit("set NO_INTRO_DIR to the No-Intro romset folder (or pass --cart)")
     lines = [line for line in args.cases.read_text().splitlines() if line.startswith("C ")]
     with tempfile.TemporaryDirectory(prefix="sh2-rung1-mame-") as scratch:
         work = Path(scratch)

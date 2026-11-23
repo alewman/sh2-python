@@ -12,7 +12,7 @@ are the same run for a cartridge without input. Each run's ``error.log`` is kept
 ``master.log`` / ``slave.log`` in a fresh directory (default
 ``tests/mame_traces/32x-<cart stem>``, ignored).
 
-    python scripts/mame_trace.py "/data/emu/roms-retrobat/sega32x/BC Racers (USA).7z"
+    python scripts/mame_trace.py "$NO_INTRO_DIR/Sega - 32X/BC Racers (USA).zip"
     python scripts/mame_trace.py game.32x --seconds 2 --only master
     python scripts/mame_trace.py game.zip --only master --bus --frames 120
 
@@ -40,6 +40,7 @@ visible CPU to nil and MAME segfaults).
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -48,7 +49,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAME = "/usr/games/mame"
-ROMPATH = "/data/emu/source/myrient.erista.me/files/MAME/ROMs (non-merged)"
+# The local MAME romset folder (it must hold 32x.zip): MAME_ROMPATH or --rompath.
+ROMPATH = os.environ.get("MAME_ROMPATH")
 DRIVERS = ("32x", "32xj", "32xe")
 CART_SUFFIXES = (".32x", ".bin")
 CPUS = {
@@ -149,6 +151,8 @@ def main() -> int:
     parser.add_argument("--mame", default=MAME)
     parser.add_argument("--rompath", default=ROMPATH)
     args = parser.parse_args()
+    if not args.rompath:
+        raise SystemExit("set MAME_ROMPATH to the MAME romset folder (or pass --rompath)")
     cart = args.cart.resolve()
     out = (args.out or ROOT / "tests" / "mame_traces" / f"{args.driver}-{cart.stem}").resolve()
     if out.exists():

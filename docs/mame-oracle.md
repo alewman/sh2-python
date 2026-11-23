@@ -17,14 +17,14 @@ to its own on-chip modules. That is what rungs 1 and 2 need from it. It is a
 ## The command
 
 ```sh
-python scripts/mame_trace.py "/data/emu/roms-retrobat/sega32x/BC Racers (USA).7z" --seconds 1
+python scripts/mame_trace.py "$NO_INTRO_DIR/Sega - 32X/BC Racers (USA).zip" --seconds 1
 ```
 
 It runs MAME once per SH-2 in a fresh directory (default
 `tests/mame_traces/32x-<cart stem>`, ignored), each time as
 
 ```sh
-mame 32x -cart <image> -rompath "/data/emu/source/myrient.erista.me/files/MAME/ROMs (non-merged)" \
+mame 32x -cart <image> -rompath "$MAME_ROMPATH" \
   -homepath <out> -snapshot_directory <out>/snap-<cpu> -video none -sound none -nothrottle \
   -noreadconfig -skip_gameinfo -nodrc -debug -debugger none -log -seconds_to_run <n> \
   -autoboot_script <out>/<cpu>.lua
@@ -50,7 +50,7 @@ the user's MAME collection and is never downloaded
 
 ## What it produced (2026-10-21)
 
-`scripts/mame_trace.py "/data/emu/roms-retrobat/sega32x/BC Racers (USA).7z"
+`scripts/mame_trace.py "BC Racers (USA).7z"
 --only master --seconds 1`: **16,118,368 instructions** (`S`), **11,784**
 on-chip reads (`IR`) and **23,589** on-chip writes (`IW`), a 2.07 GB log, 2 min
 7 s wall. An earlier run with the trace action alone gave the same 16,118,368

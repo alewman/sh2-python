@@ -254,7 +254,7 @@ case in 25 runs in the normal suite).
 ### Rung 2 — passed (emulator detector): 129 M master instructions register-exact
 
 `scripts/mame_trace.py CART --only master --bus --frames 120` (MAME 0.285,
-`-nodrc`, cartridges from `/data/emu/roms/sega32x`, the `32x` set from the local
+`-nodrc`, cartridges from the local No-Intro 32X set, the `32x` set from the local
 MAME romset), replayed by `validation/rung2/replay.py` on PyPy; registers compared
 after every instruction, every byte the core writes compared with MAME's:
 
