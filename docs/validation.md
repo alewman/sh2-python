@@ -242,7 +242,7 @@ covers timing and the cache, not instruction results.
 delayed branches with a random slot instruction, 200 illegal slots, 300
 undefined codes; SLEEP excluded) run on MAME 0.285 `-nodrc` (one case per frame
 through Lua, `mame_corpus.lua`) and on jgenesis `sh2-emu` @ d41e2d97
-(`validation/jgenesis_harness`). Both landed with equal registers and memory on
+(the jgenesis harness, a GPL tool kept outside this repository: `SH2_GPL_TOOLS`). Both landed with equal registers and memory on
 15,949 cases; `gate.py` sorts the other 651 into five rulings
 (`overrides.json`, each with its HM/PM citation): undefined code 300 and
 illegal slots 200 (manual; the emulators run them), TRAPA's saved PC 100

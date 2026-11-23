@@ -178,7 +178,7 @@ cycles of operation"; with OVFIE = 0 DVDNTH holds it and DVDNTL H'7FFFFFFF
 (positive quotient) or H'80000000 (negative); table 10.2 gives DVDNT the
 DVDNTL column. MAME 0.285 (`sh7604.cpp`, BSD-3-Clause) sets both registers to
 H'7FFFFFFF whatever the sign and finishes instantly. jgenesis (`d41e2d9`, run
-as a closed box through `validation/jgenesis_harness`, 2026-11-19) saturates
+as a closed box through the jgenesis harness, 2026-11-19) saturates
 DVDNTL by the quotient's sign but keeps no early state in DVDNTH, and its
 harness panics on H'80000000 ÷ −1.
 

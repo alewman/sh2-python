@@ -41,7 +41,7 @@ packages = ["src/sh2_python"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-exclude = [".git", ".pytest_cache", "reference", "validation/jgenesis_harness/target"]
+exclude = [".git", ".pytest_cache", "reference"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "PERF", "RUF"]

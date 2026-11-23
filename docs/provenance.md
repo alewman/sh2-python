@@ -49,7 +49,7 @@ below; the rows of the tables are updated with their new source and verdict.
 | Piece | Source | Licence / terms | Verdict |
 | --- | --- | --- | --- |
 | `validation/rung1/` corpus (`cases`, `expected`), `overrides.json` | cases generated here; expected values from running MAME (`-nodrc`) and jgenesis | closed-box outputs | clean |
-| `validation/jgenesis_harness/` | own glue against jgenesis' `sh2-emu` public API; built in `reference/build/`, never distributed | jgenesis GPL-3.0 | clean (wave 2): its header and NOTICE say the built binary is a GPL-3.0 tool (there is no `validation/rung1/README.md`; `gate.py`'s docstring describes the referees) |
+| `validation/jgenesis_harness/` (until 2026-11-22; History) | own glue against jgenesis' `sh2-emu` public API; built in `reference/build/`, never distributed | jgenesis GPL-3.0 | clean (wave 2): its header and NOTICE say the built binary is a GPL-3.0 tool (there is no `validation/rung1/README.md`; `gate.py`'s docstring describes the referees) |
 | `tests/data/disasm_mame.txt.gz`, `disasm_jgenesis.txt.gz` | disassembler outputs | closed-box outputs | clean |
 | `validation/rung4/dn_p2.json`, `scripts/extract_dn_rung4.py` | Dunkley's CPS3 companion data | CC-BY-4.0, attributed in the file | clean |
 | `validation/rung2/replay.py`, `scripts/mame_trace.py` | MAME 0.285 run as a closed box | — | clean (but `mame_trace.py` hard-codes a machine ROM path: a house-rule item, use `MAME_ROMPATH`) |
@@ -95,7 +95,7 @@ range without display. Two flagged lines were seen while locating the code
 (`grep` output of the comments, and the three-line non-overflow tail of
 `_divide_64`); nothing of them was reused beyond what HM states.
 
-Closed-box route tried: jgenesis `d41e2d9` through `validation/jgenesis_harness`
+Closed-box route tried: jgenesis `d41e2d9` through the jgenesis harness
 (a probe of 35 edge cases). It saturates on overflow but models no early state,
 and panics on H'80000000 ÷ −1, so it cannot measure the partial results.
 Mednafen would need a Saturn BIOS and a Saturn program from an SH toolchain
@@ -128,3 +128,16 @@ Gates (CPython 3.14, `pytest`, then `pytest -m slow`):
 | rung 1 corpus (16,600 cases) | pass | pass |
 | rung 2 MAME replays (4 games, ~129 M instructions) | 4/4 exact | 4/4 exact |
 | rung 4 DN CPU-resident loops | pass | pass |
+
+## History rewrite (2026-11-22, wave G)
+
+The family's history clean-up (wave G) removed `validation/jgenesis_harness/` (our Rust
+harness, built linked with jgenesis' GPL-3.0 `sh2-emu`) and
+`scripts/build_jgenesis_harness.py` (which assembles that build and patches a copy of
+`sh2-emu`'s source with a `registers_mut()` accessor) from every commit with `git
+filter-repo`, keeping the single commit of the 2026-11-21 reset. By the family's rule of
+2026-11-19 both are GPL tools. They are kept with the family's other GPL tools
+(emu-tools-gpl, `tools/sh2-python`): run `python "$SH2_GPL_TOOLS/build_jgenesis_harness.py"`
+from this checkout and the binary lands where it did,
+`reference/build/jgenesis-sh2/target/release/sh2-jgenesis-harness`. Commit hashes cited
+from before that date refer to the old history, which is kept privately.
