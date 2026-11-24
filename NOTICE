@@ -7,7 +7,7 @@ Ymir, Kronos, Yabause, PicoDrive and srg320's MiSTer RTL may only be run as
 closed boxes (docs/provenance.md). The jgenesis harness (our source, but the
 binary it builds links jgenesis' GPL-3.0 `sh2-emu`) and the script that builds
 it are GPL tools, kept outside this repository since 2026-11-22 and found
-through SH2_GPL_TOOLS; the binary is built under reference/build and never
+at $EMU_TOOLS_GPL/tools/sh2-python/ (a checkout of emu-tools-gpl); the binary is built under reference/build and never
 distributed.
 
 Permissive material it draws on, with the notices those licences require:

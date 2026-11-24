@@ -91,7 +91,7 @@ romset and the cartridges come from the user's own collection.
 | `scripts/build_referees.py` | checks MAME 0.285 and its `32x` romset; builds Mednafen 1.32.1 (Saturn only) |
 | `scripts/mame_trace.py` | MAME 0.285 per-instruction trace of either 32X SH-2 with its on-chip I/O accesses, and with `--bus` its external ones ([docs/mame-oracle.md](docs/mame-oracle.md)) |
 | `scripts/extract_pm_tables.py`, `scripts/gen_decode.py` | PM table A.50 from the PDF, and the decode table from it |
-| `$SH2_GPL_TOOLS/build_jgenesis_harness.py` | the rung-1 referee harness around jgenesis' `sh2-emu`: a GPL tool kept outside this repository (docs/provenance.md, "History"); run from this checkout |
+| `$EMU_TOOLS_GPL/tools/sh2-python/build_jgenesis_harness.py` | the rung-1 referee harness around jgenesis' `sh2-emu`: a GPL tool kept outside this repository (docs/provenance.md, "History"); run from this checkout |
 | `validation/rung1/` | the rung-1 corpus: generator, MAME runner, gate, rulings |
 | `validation/rung2/replay.py` | the rung-2 replay of a MAME bus trace |
 | `scripts/extract_dn_rung4.py` | DN/DP's P2 loops, samples and purge values from the companion into `validation/rung4/dn_p2.json` |

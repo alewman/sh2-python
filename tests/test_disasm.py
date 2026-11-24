@@ -7,8 +7,8 @@ against two of these"):
   ``unidasm <every word> -arch sh2 -norawbytes`` printed it (each word at address 2 x
   word);
 - ``tests/data/disasm_jgenesis.txt.gz``: jgenesis' ``disassemble_into`` (sh2-emu @
-  d41e2d97), from ``sh2-jgenesis-harness --disasm`` ($SH2_GPL_TOOLS/build_jgenesis_harness.py),
-  each word at address 0.
+  d41e2d97), from ``sh2-jgenesis-harness --disasm``
+  ($EMU_TOOLS_GPL/tools/sh2-python/build_jgenesis_harness.py), each word at address 0.
 
 jgenesis' disassembler calls exactly the same 11,784 words undefined as PM appendix A
 does. MAME's *disassembler* decodes some groups on fewer bits than PM (its 0000 and

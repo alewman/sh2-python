@@ -137,7 +137,8 @@ harness, built linked with jgenesis' GPL-3.0 `sh2-emu`) and
 `sh2-emu`'s source with a `registers_mut()` accessor) from every commit with `git
 filter-repo`, keeping the single commit of the 2026-11-21 reset. By the family's rule of
 2026-11-19 both are GPL tools. They are kept with the family's other GPL tools
-(emu-tools-gpl, `tools/sh2-python`): run `python "$SH2_GPL_TOOLS/build_jgenesis_harness.py"`
-from this checkout and the binary lands where it did,
+(emu-tools-gpl, `tools/sh2-python`): with `EMU_TOOLS_GPL` naming a checkout of
+emu-tools-gpl, run `python "$EMU_TOOLS_GPL/tools/sh2-python/build_jgenesis_harness.py"`
+from this checkout (until 2026-11-24 the folder was named by `SH2_GPL_TOOLS`) and the binary lands where it did,
 `reference/build/jgenesis-sh2/target/release/sh2-jgenesis-harness`. Commit hashes cited
 from before that date refer to the old history, which is kept privately.

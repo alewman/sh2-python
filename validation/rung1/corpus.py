@@ -3,9 +3,10 @@
 docs/validation.md, rung 1. There is no SH-2 SingleStepTests, so the corpus is made
 here: random register and memory states per instruction form, each run on MAME 0.285's
 interpreter (``-nodrc``; ``mame_corpus.lua``) and on jgenesis' ``sh2-emu``
-(``$SH2_GPL_TOOLS/build_jgenesis_harness.py``, a GPL tool). Cases where the two agree
-are the gate; cases where they disagree are ruled from the manuals in ``overrides.json``.
-The tier is **emulator-derived**: a detector of register semantics, never of timing.
+(``$EMU_TOOLS_GPL/tools/sh2-python/build_jgenesis_harness.py``, a GPL tool). Cases where
+the two agree are the gate; cases where they disagree are ruled from the manuals in
+``overrides.json``. The tier is **emulator-derived**: a detector of register semantics,
+never of timing.
 
 A case is one line, the same for every runner (hexadecimal but the id)::
 
