@@ -131,8 +131,8 @@ Two properties of this core's evidence decide how the rungs are built:
 
 ### Ymir — emulator (GPL-3.0); closed box only
 
-- Pin: `StrikerX3/Ymir` @ `8cdf0a530ec1` (2026-10-18), sparse SH-2 sources,
-  tests and dev notes.
+- https://github.com/StrikerX3/Ymir @ `8cdf0a530ec1` (2026-10-18); its source is not
+  fetched since 2026-11-24 (Aubrey); a shipped build may be run.
 - Its test suite carries DIVU and MAC vectors; the repository does not say
   whether they were captured on a Saturn or generated. They are part of a
   GPL-3.0 program: since the 2026-11 provenance rewrite they are not read.
@@ -142,9 +142,9 @@ Two properties of this core's evidence decide how the rungs are built:
 
 ### srg320's SH-2 RTL (Saturn and 32X MiSTer) — emulator (FPGA reimplementation)
 
-- Pins: `MiSTer-devel/Saturn_MiSTer` @ `9aa944985a96`, `MiSTer-devel/S32X_MiSTer`
-  @ `3d4209c65951`, sparse `/rtl/SH/` (the 32X's `rtl/32X/shbios.mif`, a boot
-  ROM, is deliberately not fetched). No licence file in either repository.
+- https://github.com/MiSTer-devel/Saturn_MiSTer @ `9aa944985a96`,
+  https://github.com/MiSTer-devel/S32X_MiSTer @ `3d4209c65951`. No licence file in
+  either repository; not fetched since 2026-11-24 (Aubrey).
 - A cycle-level SystemVerilog model tuned against celeriyacon's non-public
   Saturn test programs; the reported pass of "every test"
   (segasaturnshiro.com, 2025-08) cannot be checked because the tests are
@@ -163,13 +163,15 @@ Two properties of this core's evidence decide how the rungs are built:
   its issue #493 is the best public record of 32X hardware-vs-emulator
   throughput. A Rust crate with a `BusInterface` trait: the easiest second
   interpreter to drive from a harness for rung 1.
-- PicoDrive (irixxxx) @ `1008a98e4949`: an old MAME interpreter plus a DRC,
-  `pico/32x/sh2soc.c` peripherals. Speed-oriented.
-- Kronos @ `d451a55253e2`, Yabause @ `7e38821dbac2` (2018): Saturn SH-2
-  interpreters.
+- PicoDrive (https://github.com/irixxxx/picodrive @ `1008a98e4949`): an old MAME
+  interpreter plus a DRC. Speed-oriented.
+- Kronos (https://github.com/FCare/Kronos @ `d451a55253e2`), Yabause
+  (https://github.com/Yabause/yabause @ `7e38821dbac2`, 2018): Saturn SH-2 interpreters.
 - jgenesis, Kronos and Yabause are GPL and PicoDrive non-commercial: closed
   boxes only (run, never read) since the 2026-11 provenance rewrite; ares is
-  ISC (code OK with its notice).
+  ISC (code OK with its notice). Since 2026-11-24 PicoDrive's, Kronos's and Yabause's
+  source is not fetched (Aubrey); jgenesis's is, only because the jgenesis harness
+  (emu-tools-gpl) builds sh2-emu from it.
 - Use: tie-breakers for rung 1 disagreements; nothing here judges.
 
 ### SingleStepTests sh4 — emulator-derived, wrong CPU (optional)

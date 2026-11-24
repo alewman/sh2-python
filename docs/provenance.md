@@ -142,3 +142,19 @@ emu-tools-gpl, run `python "$EMU_TOOLS_GPL/tools/sh2-python/build_jgenesis_harne
 from this checkout (until 2026-11-24 the folder was named by `SH2_GPL_TOOLS`) and the binary lands where it did,
 `reference/build/jgenesis-sh2/target/release/sh2-jgenesis-harness`. Commit hashes cited
 from before that date refer to the old history, which is kept privately.
+
+## Closed-box sources removed (2026-11-24)
+
+Aubrey's rule of 2026-11-24: an MIT repository does not download or keep the source of
+anything the family's `sources.md` marks closed box only, unless a program with no shipped
+build is built from it. Pins removed from `scripts/pinned_repos.json`, trees moved aside
+unopened, out of the repository (not deleted), none of them built: PicoDrive (`1008a98e`,
+non-commercial), Kronos (`d451a552`, GPL-2.0), Yabause (`7e38821d`, GPL-2.0), Ymir
+(`8cdf0a53`, GPL-3.0), Saturn_MiSTer (`9aa94498`, no licence) and S32X_MiSTer (`3d4209c6`, no
+licence). URLs are in docs/validation.md.
+
+**Kept, with a question for Aubrey:** jgenesis (GPL-3.0), because the harness above builds
+its `sh2-emu` crate (the build copy under `reference/build/jgenesis-sh2/` holds its source),
+and the Mednafen 1.32.1 tarball, from which `scripts/build_referees.py` builds the Saturn
+detector. Neither has a shipped build that would do. Whether both builds move to the GPL tool
+repositories is open.
