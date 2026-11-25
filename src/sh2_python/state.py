@@ -16,11 +16,20 @@ class ChipState:
     ``r`` is R0-R15; ``pc`` the address of the next instruction; ``delay_target`` -1 or
     the target of a delayed branch whose slot (at ``pc``) runs next: that and
     ``no_interrupt`` (the last instruction blocks interrupts, HM 4.6.2),
-    ``address_error`` (one is pending) and ``nmi_pending`` are the in-flight state a
+    ``address_error`` (one is pending), ``dma_address_error`` (a DMA address error
+    waiting for its exception, vector 10) and ``nmi_pending`` are the in-flight state a
     step boundary needs to resume exactly, with ``pipeline``, the stage scheduler's
     in-flight slots and fetched longwords (opaque integers; empty means "refetch from
     ``pc``", which is what a state built by hand gets). ``modules`` maps each module's name to its
     registers. ``sr`` holds only M, Q, I3-I0, S, T (mask H'3F3).
+
+    ``internal`` is what the chip holds beyond its registers, by module name (and
+    ``"chip"`` for what the chip keeps for its modules), as opaque integers like
+    ``pipeline``: the cache's lines, tags, valid bits and LRU; the BSC's SDRAM banks and
+    refresh; the flags a "read 1, then write 0" clears; the timers' catch-up clocks; the
+    NMI edge detector. With it a state loaded into a fresh chip on the same memory
+    continues exactly as the chip it was captured from (tests/test_state.py). A module
+    missing from it (a state built by hand) keeps what the chip holds.
 
     Rung 1's corpus uses ``r``, ``sr``, ``gbr``, ``vbr``, ``mach``, ``macl``, ``pr``
     and ``pc`` (validation/rung1).
@@ -42,6 +51,8 @@ class ChipState:
     clock: int = 0
     pipeline: tuple[int, ...] = ()
     modules: dict[str, dict[str, int]] = field(default_factory=dict)
+    dma_address_error: bool = False
+    internal: dict[str, tuple[int, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if len(self.r) != 16:

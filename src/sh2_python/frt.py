@@ -233,5 +233,12 @@ class FRT(Module):
         self.ftob = values["FTOB"]
         self._clock = self.chip.clock
 
+    def internal(self) -> tuple[int, ...]:
+        """The clock FRC was last counted to, and FTCSR as last read."""
+        return (self._clock, self._flags_read)
+
+    def load_internal(self, values: tuple[int, ...]) -> None:
+        self._clock, self._flags_read = values
+
 
 __all__ = ["FRT"]

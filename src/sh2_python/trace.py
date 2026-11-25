@@ -22,7 +22,8 @@ from sh2_python.disasm import disassemble_word
 from sh2_python.state import ChipState
 
 #: 2: states carry ``pipeline`` (the stage scheduler's in-flight state, rung 3).
-TRACE_SCHEMA_VERSION = 2
+#: 3: and ``dma_address_error`` and ``internal`` (the cache's storage, the SDRAM banks...).
+TRACE_SCHEMA_VERSION = 3
 _STATE_KEYS = tuple(f.name for f in fields(ChipState))
 _MISSING = object()
 
@@ -41,6 +42,7 @@ def _state_from_dict(data: dict) -> ChipState:
     values = dict(data)
     values["r"] = tuple(values["r"])
     values["pipeline"] = tuple(values["pipeline"])
+    values["internal"] = {name: tuple(v) for name, v in values["internal"].items()}
     return ChipState(**values)
 
 

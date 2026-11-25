@@ -233,5 +233,15 @@ class Cache(Module):
         self.ccr = values["CCR"]
         self.enabled = bool(self.ccr & CCR_CE)
 
+    def internal(self) -> tuple[int, ...]:
+        """The storage: 4,096 data bytes, then 256 tags, 256 valid bits, 64 LRU fields."""
+        return (*self.data, *self.tags, *self.valid, *self.lru)
+
+    def load_internal(self, values: tuple[int, ...]) -> None:
+        self.data = bytearray(values[:4096])
+        self.tags = list(values[4096:4352])
+        self.valid = list(values[4352:4608])
+        self.lru = list(values[4608:4672])
+
 
 __all__ = ["CCR_CE", "CCR_CP", "CCR_ID", "CCR_OD", "CCR_TW", "Cache", "lru_victim"]

@@ -65,6 +65,7 @@ SR_MASK = 0x3F3  # M Q I3-I0 S T: the bits that exist (PM 2.2; "the other bits r
 VECTOR_ILLEGAL = 4  # general illegal instruction (HM table 4.3)
 VECTOR_SLOT_ILLEGAL = 6
 VECTOR_ADDRESS_ERROR = 9
+VECTOR_DMA_ADDRESS_ERROR = 10  # HM table 4.3
 VECTOR_NMI = 11
 IRL_VECTOR_BASE = 64  # IRL1 -> 64, IRL2-3 -> 65, ... IRL14-15 -> 71 (HM table 5.3)
 
@@ -105,6 +106,17 @@ class CoreMixin:
             if self._address_error:
                 self._address_error = False
                 self._exception(VECTOR_ADDRESS_ERROR, self.pc, -1, "address_error")
+                self._p_pc = self.pc
+                return self.clock - start
+            if self._dma_address_error:
+                # DOC: HM 4.1 (table 4.1: below the CPU's address error, above every
+                # interrupt; table 4.2: taken when the instruction under way ends, so not
+                # between a delayed branch and its slot, HM 4.6.1), HM 4.3.2 (the saved PC
+                # is the next instruction's), HM 14.3.2 (it ends SLEEP). Entry as for the
+                # CPU's address error (PM figure 7.95).
+                self._dma_address_error = False
+                self.sleeping = False
+                self._exception(VECTOR_DMA_ADDRESS_ERROR, self.pc, -1, "address_error")
                 self._p_pc = self.pc
                 return self.clock - start
             if self.nmi != self._nmi_seen:
@@ -700,6 +712,21 @@ class CoreMixin:
         module.write(address, width, value)
 
     # -- DMA accesses (the DMAC's side of the internal bus) -------------------------------
+
+    @staticmethod
+    def _dma_address_fault(address: int, width: int) -> bool:
+        """Whether a DMAC access is an address error (DOC: HM table 4.6, "CPU or DMAC").
+
+        A word at an odd address, a longword off a longword boundary (a 16-byte unit is
+        four longword accesses, the table's note 2), a byte at H'FFFFFF00-H'FFFFFFFF, a
+        longword at H'FFFFFE00-H'FFFFFEFF. The table's other data rows name PC-relative
+        addressing and TAS.B, which only the CPU makes.
+        """
+        if address & ((width >> 3) - 1):
+            return True
+        if address >= 0xFFFFFE00:
+            return (width == 8 and address >= 0xFFFFFF00) or (width == 32 and address < 0xFFFFFF00)
+        return False
 
     def _dma_read(self, address: int, width: int, kind: int) -> int:
         space = address >> 29

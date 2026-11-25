@@ -113,5 +113,12 @@ class SCI(Module):
         self.smr, self.brr, self.scr = values["SMR"], values["BRR"], values["SCR"]
         self.tdr, self.ssr, self.rdr = values["TDR"], values["SSR"], values["RDR"]
 
+    def internal(self) -> tuple[int, ...]:
+        """SSR as last read (its flags clear only after being read as 1)."""
+        return (self._ssr_read,)
+
+    def load_internal(self, values: tuple[int, ...]) -> None:
+        (self._ssr_read,) = values
+
 
 __all__ = ["SCI"]

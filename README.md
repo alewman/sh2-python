@@ -16,6 +16,10 @@ and one WDT value, which had been taken from Mednafen's GPL source, were removed
 unread and rewritten from the Hitachi manuals; the early state the divider leaves
 after an overflow is now a marked HYPOTHESIS (docs/provenance.md, "Wave 2"; U12,
 U13). See NOTICE for the permissive sources.
+**Save states and DMA address errors (2026-11-25):** a `ChipState` now loads into a
+fresh chip and continues identically (the cache's lines, the SDRAM banks and the rest it
+used to leave out), and the DMAC's address errors are modelled (vector 10); both found by
+sh2-rust (docs/validation.md, last section; U15).
 `src/sh2_python` is the SH7604: the SH-2 CPU (all 142 forms, delay slots,
 exceptions, interrupts) with the cache, BSC, INTC, DMAC, DIVU, FRT (FTOA), WDT,
 SCI and power-down as modules beside it (the UBC is a register map only), and the

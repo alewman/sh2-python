@@ -15,10 +15,12 @@ writes never update the cache (HM 7.11.2, 8.5.2: no snooping).
 
 Rungs 0-2 implement the registers and dual-address transfers between whole steps of
 the CPU: one transfer per CPU step in cycle-steal mode, the whole block in burst mode,
-with DREQ sampled as a level at the step boundary. Not modelled yet (rung 5 and the
-board's rung 6): the bus arbitration between CPU and DMAC inside a step, single-address
-mode and DACK (``on_dack``), DREQ edge detection (CHCR.DS) and DREQ1 acknowledge timing,
-the priority mode of DMAOR.PR, and DMA address errors (vector 10).
+with DREQ sampled as a level at the step boundary. A DMA address error (HM table 4.6's
+misaligned and wrong-size accesses) finishes its transfer, sets DMAOR.AE, stops both
+channels and raises the DMA address error exception, vector 10 (HM 9.2.7, 9.3.8;
+``_transfer``). Not modelled yet (rung 5 and the board's rung 6): the bus arbitration
+between CPU and DMAC inside a step, single-address mode and DACK (``on_dack``), DREQ
+edge detection (CHCR.DS) and DREQ1 acknowledge timing, the priority mode of DMAOR.PR.
 """
 
 from sh2_python._module import LongwordModule, Register
@@ -108,7 +110,7 @@ class DMAC(LongwordModule):
     def write32(self, address: int, value: int, mask: int) -> None:
         if address == 0xFFFFFFB0:
             # DMAOR: PR (3), AE (2), NMIF (1), DME (0); AE and NMIF clear only after
-            # being read as 1 (HM 9.2.5).
+            # being read as 1 (HM 9.2.7).
             merged = (self.dmaor & ~mask) | (value & mask)
             cleared = ~merged & self._ae_nmif_read & 0x6
             self.dmaor = (self.dmaor & 0x6 & ~cleared) | (merged & 0x9)
@@ -167,7 +169,7 @@ class DMAC(LongwordModule):
             burst = chcr & 0x0010  # TB
             while True:
                 self._transfer(channel)
-                if channel.chcr & 2 or not burst:
+                if channel.chcr & 2 or not burst or self.dmaor & 4:  # TE, AE
                     break
         self._update()
 
@@ -177,12 +179,27 @@ class DMAC(LongwordModule):
         unit = UNIT_BYTES[(chcr >> 10) & 3]
         kind = DMA | (DMA1 if channel.number else 0)
         src, dst = channel.sar, channel.dar
+        # A DMA address error (HM table 4.6; chip._dma_address_fault). DOC, HM 9.3.8: "In
+        # dual address mode, DMA transfer will be halted after the completion of the
+        # following write cycle even when the address error occurs in the initial read
+        # cycle. SAR, DAR and TCR are updated by the final transfer", so the transfer
+        # finishes and is counted below. HYPOTHESIS (U15, as the CPU's misaligned
+        # accesses in this core): the faulting access itself makes no bus cycle, and a
+        # faulting read gives 0 to the write; a probe that DMAs from a misaligned
+        # source into RAM and reads the destination, with the bus on a logic analyser,
+        # would settle both.
+        width = 32 if unit == 16 else unit * 8
+        read_fault = chip._dma_address_fault(src, width)
+        write_fault = chip._dma_address_fault(dst, width)
         if unit == 16:
-            words = chip._dma_read_unit(src, kind)
-            for i, word in enumerate(words):
-                chip._dma_write(dst + 4 * i, 32, word, kind)
+            words = [0, 0, 0, 0] if read_fault else chip._dma_read_unit(src, kind)
+            if not write_fault:
+                for i, word in enumerate(words):
+                    chip._dma_write(dst + 4 * i, 32, word, kind)
         else:
-            chip._dma_write(dst, unit * 8, chip._dma_read(src, unit * 8, kind), kind)
+            value = 0 if read_fault else chip._dma_read(src, width, kind)
+            if not write_fault:
+                chip._dma_write(dst, width, value, kind)
         sm, dm = (chcr >> 12) & 3, (chcr >> 14) & 3
         # SM/DM: 00 fixed, 01 increment, 10 decrement (HM 9.2.4); "for a 16-byte
         # transfer, the [source] address is incremented by +16 regardless of the SM1
@@ -200,7 +217,16 @@ class DMAC(LongwordModule):
         step = 4 if unit == 16 else 1
         channel.tcr = (channel.tcr - step) & 0xFFFFFF
         if channel.tcr == 0:
-            channel.chcr |= 2  # TE
+            channel.chcr |= 2  # TE: also after a faulting final transfer (HM 9.3.8)
+        if read_fault or write_fault:
+            # DOC: HM 9.2.7 (DMAOR.AE: "Operation is performed up to the DMAC transfer
+            # being executed when the address error occurred"; no channel transfers
+            # while AE = 1), HM 9.3.8 ("all channels stop their transfers"), HM 4.1
+            # (the DMA address error exception, vector 10, which the CPU takes at its
+            # next instruction boundary: _core.py ``step``). TE stays 0 when TCR has not
+            # reached 0 (HM 9.2.4, TE).
+            self.dmaor |= 4  # AE
+            chip._dma_address_error = True
 
     def state(self) -> dict[str, int]:
         out = {}
@@ -223,6 +249,14 @@ class DMAC(LongwordModule):
             channel.vcr, channel.drcr = values[f"VCRDMA{n}"], values[f"DRCR{n}"]
         self.dmaor = values["DMAOR"]
         self.active = any(self._enabled(channel) for channel in self.channels)
+
+    def internal(self) -> tuple[int, ...]:
+        """CHCR0.TE, CHCR1.TE and DMAOR as last read (they clear only after a read of 1)."""
+        return (*self._te_read, self._ae_nmif_read)
+
+    def load_internal(self, values: tuple[int, ...]) -> None:
+        self._te_read = list(values[:2])
+        self._ae_nmif_read = values[2]
 
 
 __all__ = ["DMAC"]

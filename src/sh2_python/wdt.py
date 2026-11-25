@@ -116,5 +116,12 @@ class WDT(Module):
         self.rstcsr = values["RSTCSR"]
         self._clock = self.chip.clock
 
+    def internal(self) -> tuple[int, ...]:
+        """The clock WTCNT was last counted to."""
+        return (self._clock,)
+
+    def load_internal(self, values: tuple[int, ...]) -> None:
+        (self._clock,) = values
+
 
 __all__ = ["WDT"]

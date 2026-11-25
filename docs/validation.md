@@ -692,3 +692,42 @@ first at 137, {3: 4, 4: 8, 5: 2, 6: 1} (mean 4.0). SH-2 instructions at frame 20
 alternated, load 45-60): 107,000 and 87,000 against 88,000 and 87,000 instructions/s;
 no change outside the noise. The chip now has 91 instance attributes (88 before),
 already past PyPy's 80 (the family's note on PyPy's attribute limit).
+
+## What ran, complete save states and DMA address errors (2026-11-25)
+
+Two requests from sh2-rust's transcription (its docs/requests.md, R1 and R2), fixed here
+first.
+
+**R1: a state loads into a fresh chip.** `ChipState` held CCR but not the cache's
+contents, nor the SDRAM banks, the refresh's `_refresh_end`/`_bsc_due`, the "read 1, then
+write 0" flags (FTCSR, SSR, CHCR.TE, DMAOR's AE/NMIF, RTCSR.CMF as last read), the FRT's and
+WDT's catch-up clocks, or the NMI edge detector; the round-trip tests restored into the
+same chip, which kept them. With the cache on, sh2-rust's repro took 267 states over 200
+steps continuously and 295 after a fresh-chip restore. `ChipState` gains `internal`
+(opaque integers by module, `Module.internal()`/`load_internal()`) and
+`dma_address_error`; `trace.py`'s schema goes to 3. The repro now gives 267 and 267.
+`tests/test_state.py`: save at step 1,000, restore into a new chip on a copy of the
+memory, run 400 more, and compare every bus cycle (address, width, value, kind, start
+state), every step's states, the final `ChipState` and the memory with the uninterrupted
+run, cache off and on, on the minimal harness and on the 32X's bus (16-bit area 0, CS3
+SDRAM bank active with refresh), and with the FRT, WDT and a cycle-steal DMA running; and
+every attribute of the fresh chip and its modules equal to the original's after the load
+(except the per-access scratch `_p_ma_t0`, `_p_ma_is_mul` and the last SDRAM callback's
+`cycle_states`). Against the unfixed core every one of these fails. Not in the state, by
+choice: the replay host's `_injected` interrupt (rung 2 does not save states) and the
+board's pins (the board restores them).
+
+**R2: DMA address errors** (vector 10; U15 has the rules and their evidence: DOC from HM
+4.1-4.3, 9.2.4, 9.2.7, 9.3.8, 14.3.2, with what the faulting access puts on the bus a
+HYPOTHESIS). A misaligned or wrong-size DMAC access no longer goes to the bus (or raises
+`IndexError` from the data array): the transfer completes, counted, DMAOR.AE stops both
+channels, and the CPU takes the exception at its next boundary outside a delay slot,
+waking SLEEP. Seven tests in `tests/test_state.py`, R2's repro among them.
+
+**Gates** (CPython 3.14, PyPy 7.3.20): fast tests 620 on both (606 + 14); ruff 0.16.8
+check and format clean; `pytest -m slow` (rung 1's 16,600 cases and rung 4's loops, PyPy)
+6 of 6, 712 s at load ~60. Rung 2's MAME replays were not rerun here: R1 does not touch a
+run that saves no state, and R2 changes only misaligned or wrong-size DMAC accesses;
+sh2-rust's rung 2 replays the four traces with the transcribed fix against this
+document's counts (its docs/status.md). Every existing deterministic trace stays the same
+except those that make such a DMA access (sh2-rust's lockstep lists which).

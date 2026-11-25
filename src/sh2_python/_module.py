@@ -60,6 +60,16 @@ class Module:
     def load_state(self, values: dict[str, int]) -> None:
         """Restore what :meth:`state` returned."""
 
+    def internal(self) -> tuple[int, ...]:
+        """What the module holds beyond its registers, as opaque integers (``ChipState``).
+
+        Empty for a module whose registers are all it holds.
+        """
+        return ()
+
+    def load_internal(self, values: tuple[int, ...]) -> None:
+        """Restore what :meth:`internal` returned (after :meth:`load_state`)."""
+
 
 class LongwordModule(Module):
     """A module on the 16/32-bit side whose registers are longwords.

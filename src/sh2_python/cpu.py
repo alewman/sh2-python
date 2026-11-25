@@ -244,6 +244,7 @@ class SH7604(
         # Internal state of the stepper.
         self._no_interrupt = False
         self._address_error = False
+        self._dma_address_error = False
         self._nmi_seen = self.nmi
         self._nmi_pending = False
         self._onchip_level = 0
@@ -348,6 +349,7 @@ class SH7604(
         self.sleeping = False
         self._no_interrupt = False
         self._address_error = False
+        self._dma_address_error = False
         self._nmi_pending = False
         self._nmi_seen = self.nmi
         base = 0 if power_on else 8
@@ -378,6 +380,11 @@ class SH7604(
             clock=self.clock,
             pipeline=self._pipeline_state(),
             modules={module.NAME: module.state() for module in self.modules},
+            dma_address_error=self._dma_address_error,
+            internal={
+                "chip": (int(self._nmi_seen),),
+                **{module.NAME: module.internal() for module in self.modules if module.internal()},
+            },
         )
 
     @property
@@ -407,10 +414,18 @@ class SH7604(
         else:
             self._p_slot = 0
             self._pipeline_restart()
+        self._dma_address_error = state.dma_address_error
         for module in self.modules:
             values = state.modules.get(module.NAME)
             if values:
                 module.load_state(values)
+        internal = state.internal
+        for module in self.modules:
+            values = internal.get(module.NAME)
+            if values:
+                module.load_internal(values)
+        if "chip" in internal:
+            (self._nmi_seen,) = internal["chip"]
         self.intc.update()
         self._reschedule()
 

@@ -239,6 +239,26 @@ addressing; unemulated: address errors caused by stacking of address error
 exception handling". **Build**: HM's list; what the misaligned access itself
 does on the bus before the exception is open.
 
+**DMA address errors** (built 2026-11-25, sh2-rust's request R2; before, a misaligned
+DMA access was made as if aligned, and a longword from the data array at H'FFD-H'FFF
+raised `IndexError`). DOC: HM table 4.6 applies its misalignment and on-chip size rows
+to "CPU or DMAC" (a 16-byte unit is four longword accesses, note 2); HM 9.2.7 (DMAOR.AE:
+"Operation is performed up to the DMAC transfer being executed when the address error
+occurred"; no transfer while AE = 1; AE clears by reading 1 and writing 0); HM 9.3.8
+("all channels stop their transfers"; "In dual address mode, DMA transfer will be halted
+after the completion of the following write cycle even when the address error occurs in
+the initial read cycle. SAR, DAR and TCR are updated by the final transfer"; TE = 1 only
+if that was the last transfer); HM 9.2.4 (TE stays 0 when an address error ends the
+transfer early); HM table 4.1 (the DMA address error ranks below the CPU's and above
+every interrupt), table 4.2 and 4.3.2 (taken when the instruction under way ends, the
+next instruction's address saved), HM 4.6.1 (not between a delayed branch and its slot),
+HM 14.3.2 (it ends SLEEP). **HYPOTHESIS** (U15's open half, taken the way this core
+takes the CPU's misaligned accesses): the faulting access makes no bus cycle, a faulting
+read gives 0 to the write, and a faulting write is not made. A probe that DMAs from a
+misaligned source into RAM (and to a misaligned destination) with the bus on a logic
+analyser would settle it; nothing in the family's evidence does (`dmac.py` `_transfer`,
+tests/test_state.py).
+
 ## U16 — On-chip module register quirks
 
 - WDT: WTCSR and WTCNT are written with a word write to H'FFFFFE80 whose upper

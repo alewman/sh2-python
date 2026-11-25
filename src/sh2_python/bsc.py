@@ -458,5 +458,23 @@ class BSC(LongwordModule):
         self._recompute()
         self._schedule_refresh()
 
+    def internal(self) -> tuple[int, ...]:
+        """Each area's two banks (open row, ready, precharge allowed), CMF as last read,
+        then the chip's refresh fields (``_refresh_end``, ``_bsc_due``, _core.py)."""
+        out: list[int] = []
+        for area in range(4):
+            out += self._rows[area] + self._ready[area] + self._pre_ok[area]
+        chip = self.chip
+        return (*out, int(self._cmf_read), chip._refresh_end, chip._bsc_due)
+
+    def load_internal(self, values: tuple[int, ...]) -> None:
+        for area in range(4):
+            row = values[6 * area : 6 * area + 6]
+            self._rows[area] = list(row[0:2])
+            self._ready[area] = list(row[2:4])
+            self._pre_ok[area] = list(row[4:6])
+        self._cmf_read = bool(values[24])
+        self.chip._refresh_end, self.chip._bsc_due = values[25], values[26]
+
 
 __all__ = ["BSC"]
