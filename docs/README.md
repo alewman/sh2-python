@@ -9,6 +9,8 @@ Read in this order.
 | [undocumented-behavior.md](undocumented-behavior.md) | Items U1–U20 (delay-slot PC, not-taken `BT/S`, the "2.5 cut" interrupt bug, purge ordering, overrun fetches, DIVU overflow, ...), contradictions C1–C10 between sources |
 | [validation.md](validation.md) | Every oracle by tier with its pin, what it can decide, what ran here; what could not be found; the rung plan |
 | [mame-oracle.md](mame-oracle.md) | The verified MAME 0.285 recipe for tracing either 32X SH-2 with its on-chip accesses, what it showed (the boot ROM's BSC settings, FRT bumping, DIVU read one clock after start), and its traps |
+| [handler-subset.md](handler-subset.md) | The restricted Python the instruction handlers keep to (state, bus methods, constructs, timing as data, sync points), checked by tests/test_handler_subset.py |
+| [requests.md](requests.md) | What boards and transcriptions have asked of the core and is not built yet (S1: FRT input capture on FTI, for the Saturn) |
 | [handoff-brief.md](handoff-brief.md) | The task for the session that builds the core: decisions, the bus contract, the harness, rungs, tooling, open decisions |
 
 ## Findings made while gathering (2026-10-21)

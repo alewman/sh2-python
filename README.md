@@ -20,6 +20,11 @@ U13). See NOTICE for the permissive sources.
 fresh chip and continues identically (the cache's lines, the SDRAM banks and the rest it
 used to leave out), and the DMAC's address errors are modelled (vector 10); both found by
 sh2-rust (docs/validation.md, last section; U15).
+**Handler subset (2026-11-25):** the instruction handlers keep to a named subset of
+Python (docs/handler-subset.md), checked on the syntax tree by
+`tests/test_handler_subset.py`, so a cached interpreter or a generator can read them as
+data. TAS.B's bus work moved into a bus method, `_tas8`, with byte-identical traces.
+FTOA's reset level is tagged (DOC for the chip, HYPOTHESIS for the 32X: decision B6).
 `src/sh2_python` is the SH7604: the SH-2 CPU (all 142 forms, delay slots,
 exceptions, interrupts) with the cache, BSC, INTC, DMAC, DIVU, FRT (FTOA), WDT,
 SCI and power-down as modules beside it (the UBC is a register map only), and the
