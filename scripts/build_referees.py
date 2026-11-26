@@ -7,11 +7,15 @@ Run scripts/fetch_references.py first. Nothing here needs sudo or downloads anyt
   and that the ``32x`` romset (the three SH-2/68000 boot ROMs MAME's ``32x`` driver
   needs) is in the local MAME rompath; it never fetches a BIOS. The trace recipe is
   scripts/mame_trace.py (docs/mame-oracle.md).
-- **Mednafen** is built from the pinned release tarball into
-  ``reference/build/mednafen-1.32.1`` (configure + make, about 10 minutes on 16
-  threads; needs a C++ compiler, SDL2 and zlib development files). It emulates the
-  Saturn, not the 32X: it runs Saturn homebrew such as a port of Dunkley's purge
-  sequence (docs/validation.md), with a Saturn BIOS the user supplies.
+- **Mednafen** 1.32.1 (Saturn only) is built outside this repository, by emu-tools-gpl2's
+  mednafen tool (GPL-2.0-only; since 2026-11-25, decisions page T3; built here in
+  ``reference/build/mednafen-1.32.1`` before): this runs
+  ``$EMU_TOOLS_GPL2/tools/mednafen/build.py --machine ss`` as a separate program, which fetches
+  the pinned tarball and builds ``$EMU_TOOLS_GPL2/tools/mednafen/build/ss/bin/mednafen`` with the
+  options this script used (needs a C++ compiler, SDL2 and zlib development files). Without
+  ``EMU_TOOLS_GPL2`` it is reported missing. It emulates the Saturn, not the 32X: it runs
+  Saturn homebrew such as a port of Dunkley's purge sequence (docs/validation.md), with a
+  Saturn BIOS the user supplies.
 
     python scripts/build_referees.py            # check MAME, build Mednafen if missing
     python scripts/build_referees.py --check    # report only
@@ -24,7 +28,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tarfile
 import zipfile
 from pathlib import Path
 
@@ -34,22 +37,11 @@ MAME_VERSION = "0.285"
 # The local MAME romset folder: MAME_ROMPATH (unset: the check reports the romset missing).
 ROMPATH = Path(os.environ["MAME_ROMPATH"]) if os.environ.get("MAME_ROMPATH") else None
 MAME_32X_SET = "32x.zip"
-MEDNAFEN_TARBALL = ROOT / "reference" / "archives" / "mednafen-1.32.1.tar.xz"
-MEDNAFEN_BUILD = ROOT / "reference" / "build" / "mednafen-1.32.1"
-MEDNAFEN_BINARY = MEDNAFEN_BUILD / "src" / "mednafen"
-# The Saturn module only: every other system off, no ALSA/JACK, and no libflac (its
-# development files are not installed here and only ripped-CD images need it).
-OTHER_SYSTEMS = (
-    "apple2", "gb", "gba", "lynx", "md", "nes", "ngp", "pce", "pce-fast", "pcfx",
-    "psx", "sasplay", "sms", "snes", "snes-faust", "ssfplay", "vb", "wswan",
-)  # fmt: skip
-CONFIGURE = [
-    "./configure",
-    "--disable-alsa",
-    "--disable-jack",
-    "--without-libflac",
-    *(f"--disable-{name}" for name in OTHER_SYSTEMS),
-]
+# Mednafen's build and program, at their documented paths under EMU_TOOLS_GPL2 (emu-tools
+# docs/contract.md, section 5). The tool builds the Saturn module only, as this script did.
+GPL2_ROOT = os.environ.get("EMU_TOOLS_GPL2")
+MEDNAFEN_BUILD_SCRIPT = "tools/mednafen/build.py"
+MEDNAFEN_PROGRAM = "tools/mednafen/build/ss/bin/mednafen"
 
 
 def check_mame() -> int:
@@ -78,35 +70,25 @@ def check_mame() -> int:
 
 
 def build_mednafen(check_only: bool) -> int:
-    if MEDNAFEN_BINARY.exists():
-        print(f"Mednafen: built at {MEDNAFEN_BINARY.relative_to(ROOT)}")
+    if not GPL2_ROOT:
+        print("Mednafen: EMU_TOOLS_GPL2 is not set (a checkout of emu-tools-gpl2 builds it)")
+        return 1
+    program = Path(GPL2_ROOT) / MEDNAFEN_PROGRAM
+    if program.exists():
+        print(f"Mednafen: built at $EMU_TOOLS_GPL2/{MEDNAFEN_PROGRAM}")
         return 0
     if check_only:
         print("Mednafen: not built")
         return 1
-    if not MEDNAFEN_TARBALL.exists():
-        print("Mednafen: tarball missing; run scripts/fetch_references.py")
+    script = Path(GPL2_ROOT) / MEDNAFEN_BUILD_SCRIPT
+    if not script.exists():
+        print(f"Mednafen: no $EMU_TOOLS_GPL2/{MEDNAFEN_BUILD_SCRIPT}")
         return 1
-    MEDNAFEN_BUILD.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(MEDNAFEN_TARBALL) as archive:
-        members = []
-        for info in archive.getmembers():
-            parts = Path(info.name).parts
-            if len(parts) > 1 and parts[0] == "mednafen":
-                info.name = str(Path(*parts[1:]))
-                members.append(info)
-        archive.extractall(MEDNAFEN_BUILD, members=members, filter="data")
-    jobs = str(os.cpu_count() or 4)
-    log = MEDNAFEN_BUILD / "build.log"
-    with log.open("w", encoding="utf-8") as handle:
-        for command in (CONFIGURE, ["make", "-j", jobs]):
-            result = subprocess.run(
-                command, cwd=MEDNAFEN_BUILD, stdout=handle, stderr=subprocess.STDOUT, check=False
-            )
-            if result.returncode:
-                print(f"Mednafen: {' '.join(command)} failed; see {log.relative_to(ROOT)}")
-                return 1
-    print(f"Mednafen: built {MEDNAFEN_BINARY.relative_to(ROOT)}")
+    done = subprocess.run([sys.executable, "-I", str(script), "--machine", "ss"], check=False)
+    if done.returncode:
+        print(f"Mednafen: $EMU_TOOLS_GPL2/{MEDNAFEN_BUILD_SCRIPT} --machine ss failed")
+        return 1
+    print(f"Mednafen: built $EMU_TOOLS_GPL2/{MEDNAFEN_PROGRAM}")
     return 0
 
 
