@@ -3,7 +3,8 @@
 
 One record per boundary, the family schema (m68000-python's ``trace.py``) with this
 chip's fields: ``kind`` (instruction, slot, interrupt, exception, sleep), ``states``,
-the instruction (address, opcode, text), the chip state before and after, and, when
+the instruction (address, opcode, text), the chip state before and after (without
+``internal``: the per-step capture, see below), and, when
 the session tracks them, the accesses as ``[rw, address, value, width, kind]`` --
 ``width`` in bits and ``kind`` the bus kind bits of ``bus.py`` (``value`` is null for
 cache hits and on-chip registers, seen through ``observe``). Two cores that write equal
@@ -23,8 +24,13 @@ from sh2_python.state import ChipState
 
 #: 2: states carry ``pipeline`` (the stage scheduler's in-flight state, rung 3).
 #: 3: and ``dma_address_error`` and ``internal`` (the cache's storage, the SDRAM banks...).
-TRACE_SCHEMA_VERSION = 3
-_STATE_KEYS = tuple(f.name for f in fields(ChipState))
+#: 4: states drop ``internal`` again. ``DebugSession`` records states captured with
+#: ``capture_state(internal=False)``: the full capture cost ~31 us and ~11 KB of JSON
+#: per state with the cache on, against ~1.3 us per step (MEASURED, docs/validation.md).
+#: A trace compares cores step by step; loading into a fresh chip is a save state's job.
+TRACE_SCHEMA_VERSION = 4
+#: The ``ChipState`` fields a trace record carries (and compares): all but ``internal``.
+_STATE_KEYS = tuple(f.name for f in fields(ChipState) if f.name != "internal")
 _MISSING = object()
 
 
@@ -42,7 +48,6 @@ def _state_from_dict(data: dict) -> ChipState:
     values = dict(data)
     values["r"] = tuple(values["r"])
     values["pipeline"] = tuple(values["pipeline"])
-    values["internal"] = {name: tuple(v) for name, v in values["internal"].items()}
     return ChipState(**values)
 
 

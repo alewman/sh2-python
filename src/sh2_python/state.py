@@ -30,6 +30,8 @@ class ChipState:
     NMI edge detector. With it a state loaded into a fresh chip on the same memory
     continues exactly as the chip it was captured from (tests/test_state.py). A module
     missing from it (a state built by hand) keeps what the chip holds.
+    ``capture_state(internal=False)``, the debugger's and the trace's per-step capture,
+    leaves it empty.
 
     Rung 1's corpus uses ``r``, ``sr``, ``gbr``, ``vbr``, ``mach``, ``macl``, ``pr``
     and ``pc`` (validation/rung1).

@@ -731,3 +731,40 @@ run that saves no state, and R2 changes only misaligned or wrong-size DMAC acces
 sh2-rust's rung 2 replays the four traces with the transcribed fix against this
 document's counts (its docs/status.md). Every existing deterministic trace stays the same
 except those that make such a DMA access (sh2-rust's lockstep lists which).
+
+## What ran, the cache out of the per-step records (2026-11-25, branch light-capture)
+
+A review of 8824075 found that `capture_state` was both the save state and the
+debugger's per-step record: `DebugSession.step` captures before and after every step,
+`run` captures its stop state, and `trace.py` writes both states of every record. Since
+R1 that capture carries `internal` (the cache's 4,672 integers, the BSC's banks), and it
+called each module's `internal()` twice.
+
+**The change.** `capture_state(*, internal=True)`: the default is the save state, as
+before (`chip.state`, `restore_state`, sega32x-python's save states and every existing
+caller unchanged); `internal=False` leaves `ChipState.internal` empty, and the debugger
+uses it for `StepRecord.before`/`after` and `RunResult.state`. `internal()` is now called
+once per module. A light state still holds every register, the in-flight state, the
+pipeline and every module's registers, so step-by-step comparison is unchanged; it does
+not load into a fresh chip (the cache's lines stay what the target chip holds, the "built
+by hand" rule). **Trace schema 4**: states carry no `internal` key, and
+`compare_step_records` (so `first_trace_divergence`) compares the same fields the file
+carries, so an in-memory record and its read-back compare equal. `read_trace` refuses
+schema-3 files (it accepts only the current version, as before).
+
+**Speed** (MEASURED; a scratch script outside the repository, harness_speed's program
+with the cache on after 1,000 steps, best of 5 x 50,000 captures, pinned to one core with
+`taskset`, load ~18): PyPy 7.3.23, full capture 31 and 36 us at 8824075, 18.5 us now
+(one `internal()` call per module); the per-step capture 2.9 us; `chip.step()` on this
+cached loop 1.3-1.6 us. CPython 3.14: 36 us at 8824075, 22.8 us full and 9.7 us light
+now. JSON per trace state: 10,819 bytes at schema 3, 1,264 bytes at schema 4 (this
+program; the review's 15.7 KB was a state with more BSC and module values).
+
+**Gates** (CPython 3.14, PyPy 7.3.23): fast tests 623 on both (620 + 3: the light
+capture equals the full one with `internal` emptied, on the 32X bus with the modules
+running; a save state still round-trips the cache into a fresh chip, 267 states over 200
+steps, and a light one does not carry the lines; debugger records, `run`'s state and
+schema-4 trace lines carry no `internal`, and a trace round-trips); ruff check clean,
+ruff format clean on the Python (`ruff format --check .` also flags two Markdown code
+blocks, README.md and docs/handoff-brief.md, that this change does not touch). `pytest -m slow` was not rerun: no cycle changes (the capture reads no bus and
+changes no state).

@@ -361,8 +361,21 @@ class SH7604(
 
     # -- state -------------------------------------------------------------------------
 
-    def capture_state(self) -> ChipState:
-        """An immutable snapshot of the chip at a step boundary (no bus reads)."""
+    def capture_state(self, *, internal: bool = True) -> ChipState:
+        """An immutable snapshot of the chip at a step boundary (no bus reads).
+
+        ``internal=False`` leaves out :attr:`ChipState.internal` (the cache's 4,672
+        integers, the SDRAM banks...): the per-step capture of the debugger and the
+        trace, which is enough to compare two cores step by step but not to load into
+        a fresh chip. Save states keep the default.
+        """
+        held: dict[str, tuple[int, ...]] = {}
+        if internal:
+            held["chip"] = (int(self._nmi_seen),)
+            for module in self.modules:
+                values = module.internal()
+                if values:
+                    held[module.NAME] = values
         return ChipState(
             r=tuple(self.R),
             sr=self.sr,
@@ -381,10 +394,7 @@ class SH7604(
             pipeline=self._pipeline_state(),
             modules={module.NAME: module.state() for module in self.modules},
             dma_address_error=self._dma_address_error,
-            internal={
-                "chip": (int(self._nmi_seen),),
-                **{module.NAME: module.internal() for module in self.modules if module.internal()},
-            },
+            internal=held,
         )
 
     @property

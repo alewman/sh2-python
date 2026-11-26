@@ -1,6 +1,7 @@
 """The debugger, the trace format, the console and the command line."""
 
 import io
+import json
 import struct
 
 from conftest import PROGRAM, make
@@ -8,7 +9,12 @@ from conftest import PROGRAM, make
 from sh2_python.__main__ import main
 from sh2_python.console import CommandDebugger
 from sh2_python.debug import BoundaryKind, DebugSession, StopReason
-from sh2_python.trace import first_trace_divergence, read_trace, write_trace
+from sh2_python.trace import (
+    TRACE_SCHEMA_VERSION,
+    first_trace_divergence,
+    read_trace,
+    write_trace,
+)
 
 NOP = 0x0009
 
@@ -54,6 +60,23 @@ def test_trace_round_trip(tmp_path):
         back = list(read_trace(stream))
     assert first_trace_divergence(records, back) is None
     assert back[2].instruction.text.startswith("ADD")
+
+
+def test_records_and_traces_carry_the_per_step_state(tmp_path):
+    # The debugger records ``capture_state(internal=False)``; schema 4 has no ``internal``.
+    h = make([0xE00A, 0xE105, 0x301C, 0xAFFE, NOP])
+    h.chip.cache.write_ccr(0x01)
+    session = DebugSession(h.chip, peek16=h.peek16)
+    record = session.step()
+    assert record.before.internal == {} and record.after.internal == {}
+    assert h.chip.capture_state().internal["cache"]
+    assert session.run(max_steps=2).state.internal == {}
+    stream = io.StringIO()
+    write_trace([record], stream)
+    line = json.loads(stream.getvalue())
+    assert TRACE_SCHEMA_VERSION == 4 and line["version"] == 4
+    assert "internal" not in line["before"] and "internal" not in line["after"]
+    assert first_trace_divergence([record], read_trace(io.StringIO(stream.getvalue()))) is None
 
 
 def test_console_commands():

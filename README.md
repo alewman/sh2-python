@@ -19,7 +19,9 @@ U13). See NOTICE for the permissive sources.
 **Save states and DMA address errors (2026-11-25):** a `ChipState` now loads into a
 fresh chip and continues identically (the cache's lines, the SDRAM banks and the rest it
 used to leave out), and the DMAC's address errors are modelled (vector 10); both found by
-sh2-rust (docs/validation.md, last section; U15).
+sh2-rust (docs/validation.md; U15). The debugger and the trace record the light
+per-step capture, `capture_state(internal=False)`; save states keep the full
+`capture_state()` (trace schema 4; docs/validation.md, last section).
 `src/sh2_python` is the SH7604: the SH-2 CPU (all 142 forms, delay slots,
 exceptions, interrupts) with the cache, BSC, INTC, DMAC, DIVU, FRT (FTOA), WDT,
 SCI and power-down as modules beside it (the UBC is a register map only), and the

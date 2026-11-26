@@ -8,6 +8,11 @@ access tracking with watchpoints. It never changes what the core does: it wraps 
 chip's ``read``/``write`` callables (external bus cycles, with values) and its
 ``observe`` hook (every CPU access, **cache hits included**), and :meth:`close` puts
 the originals back.
+
+The states it records (``StepRecord.before``/``after``, ``RunResult.state``) are the
+chip's per-step capture, ``capture_state(internal=False)``: everything but the cache's
+storage, the SDRAM banks and the other ``ChipState.internal`` values, which are a save
+state's (``capture_state()``) and would cost several times a step to copy.
 """
 
 from collections import deque
@@ -186,7 +191,7 @@ class DebugSession:
     def step(self) -> StepRecord:
         """Advance exactly one boundary, ignoring breakpoints."""
         chip = self.chip
-        before = chip.capture_state()
+        before = chip.capture_state(internal=False)
         kind = next_boundary(chip)
         instruction = None
         if kind in (BoundaryKind.INSTRUCTION, BoundaryKind.SLOT) and self.peek16 is not None:
@@ -198,7 +203,7 @@ class DebugSession:
             sequence=self.total_steps,
             kind=kind,
             before=before,
-            after=chip.capture_state(),
+            after=chip.capture_state(internal=False),
             states=states,
             instruction=instruction,
             accesses=None if self._accesses is None else tuple(self._accesses),
@@ -219,7 +224,13 @@ class DebugSession:
 
         def result(reason: StopReason, **extra) -> RunResult:
             return RunResult(
-                reason, steps, instructions, states, chip.capture_state(), last, **extra
+                reason,
+                steps,
+                instructions,
+                states,
+                chip.capture_state(internal=False),
+                last,
+                **extra,
             )
 
         while steps < max_steps:

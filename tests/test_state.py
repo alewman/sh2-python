@@ -10,6 +10,8 @@ R1: the cache's lines, the SDRAM banks, the refresh). DMA address errors are sh2
 request R2 (HM 4.3, 9.2.7, 9.3.8).
 """
 
+import dataclasses
+
 import pytest
 from conftest import make
 
@@ -295,3 +297,33 @@ def test_a_pending_dma_address_error_is_in_the_state():
     other, _ = _dma_chip(0, 0, 0, 0)
     other.restore_state(saved)
     assert other._dma_address_error
+
+
+# -- the per-step capture (the debugger's and the trace's) ----------------------------------------
+
+
+def test_the_per_step_capture_is_the_save_state_without_internal():
+    original = _new(True, "32x", True)
+    _run(original.chip, 1000)
+    full = original.chip.capture_state()
+    light = original.chip.capture_state(internal=False)
+    assert light.internal == {} and full.internal["cache"] and full.internal["bsc"]
+    assert light == dataclasses.replace(full, internal={})
+    assert original.chip.state == full  # ``chip.state`` is the save state
+
+
+def test_the_save_state_still_round_trips_the_cache():
+    # The full capture after a fresh-chip load equals the one saved, cache lines included,
+    # and the light capture would not carry them (a fresh chip's lines are invalid).
+    original = _new(True, "plain", False)
+    _run(original.chip, 1000)
+    saved = original.chip.capture_state()
+    fresh = Harness(harness_speed.program())
+    fresh.low[:], fresh.high[:] = original.low, original.high
+    fresh.chip.restore_state(saved)
+    assert fresh.chip.capture_state() == saved
+    assert fresh.chip.cache.valid == original.chip.cache.valid
+    assert sum(_run(fresh.chip, 200)) == sum(_run(original.chip, 200)) == 267
+    blank = Harness(harness_speed.program())
+    blank.chip.restore_state(original.chip.capture_state(internal=False))
+    assert blank.chip.cache.valid != original.chip.cache.valid
