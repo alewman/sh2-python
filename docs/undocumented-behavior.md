@@ -279,6 +279,10 @@ The 32X wires FTOA to IRL0 on both SH-2s; its boot code runs the FRT so FTOA
 toggles every 16 clocks ("FRT bumping", 32XDK wiki). The core must expose FTOA
 as an output the board can see change, with the clock at which it changed.
 
+Its level from reset to the first compare match A is 0: DOC for the chip (HM 11.2.2,
+appendix A table A.1), HYPOTHESIS for the 32X's early units, where 19 titles stall
+with FTOA low on /IRL0 (decision B6, 2026-11-25; validation.md, "The FTOA reset level").
+
 ## U18 — Power-down
 
 `SLEEP` (3 states, then sleep until an interrupt or reset), standby (SBYCR.SBY

@@ -62,6 +62,16 @@ class FRT(Module):
         self.tocr = 0xE0
         self.icr = 0
         self.temp = 0
+        # FTOA's level from reset to the first compare match A: 0. For the chip HM says
+        # so (DOC: HM 11.2.2, "After a reset, FTOA and FTOB output 0 until the first
+        # compare match occurs"; appendix A table A.1, FTOA L in both resets; HM 11.7
+        # note 6: unreliable at power-on until the oscillator settles). HYPOTHESIS for the
+        # 32X, the machine that reads it (decision B6, 2026-11-25): the 32X ties FTOA to
+        # /IRL0, and 19 early titles (Gnu Sierra, Golf betas 2-10, Motocross betas 1-7,
+        # Doom betas 2 and 4) run at interrupt mask 0 with FTOA low and stall in an
+        # endless level-1 interrupt. Their dev units may have differed (another SH-2
+        # revision, U20, or another tie); no 32X is at hand to probe. Kept at the
+        # manual's 0 (docs/validation.md, "The FTOA reset level").
         self.ftoa = 0
         self.ftob = 0
         self._flags_read = 0  # FTCSR as last read: a flag clears only after being read as 1

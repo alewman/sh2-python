@@ -731,3 +731,28 @@ run that saves no state, and R2 changes only misaligned or wrong-size DMAC acces
 sh2-rust's rung 2 replays the four traces with the transcribed fix against this
 document's counts (its docs/status.md). Every existing deterministic trace stays the same
 except those that make such a DMA access (sh2-rust's lockstep lists which).
+
+## The FTOA reset level (2026-11-25, decision B6)
+
+`frt.py` starts FTOA at 0 after every reset and keeps it there until the first compare
+match A. This used to carry no tag; it now carries two, because the evidence differs by
+claim:
+
+- **For the SH7604: DOC.** HM 11.2.2: "After a reset, FTOA and FTOB output 0 until the
+  first compare match occurs"; appendix A table A.1 gives FTOA as L in power-on and
+  manual reset, master and slave. HM 11.7 note 6: at power-on the pin is unreliable
+  until the oscillator settles, then outputs the initial value.
+- **For the 32X: HYPOTHESIS.** The 32X ties FTOA to /IRL0 (32XDK wiki, from the
+  schematic; testpico). With that tie, 19 early titles stall on sega32x-python and not on
+  its detectors (its docs/status.md, "The FTOA finding"): the Gnu Sierra sample, Golf
+  Magazine betas 2-10, Motocross Championship betas 1-7, Doom betas 2 and 4. They run at
+  interrupt mask 0 with FTOA low and take an endless level-1 interrupt. Later betas of
+  the same games program the FRT first (Sega Technical Bulletin #10, 1994-09-23). The
+  dev units they were written on may have differed: another SH-2 revision (U20), another
+  tie, or a pin that idled high. No 32X is at hand, so no probe can settle it. Decision B6
+  (Aubrey, 2026-11-25) keeps the manual's 0 and the board's tie as built. A per-machine
+  switch would be a model with no evidence behind it.
+
+What would decide it: an SR-0 test on a production 32X (unmask all interrupts before
+touching the FRT, and see whether the level-1 handler runs at once), or the same test on
+a dev unit.
