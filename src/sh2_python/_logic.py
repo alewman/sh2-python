@@ -11,8 +11,6 @@ sets T when it is 0, and writes it back with bit 7 set, updating a cache line th
 holds it (HM 8.4.4, figure 8.7); on the bus it is a read then a write.
 """
 
-from sh2_python.bus import THROUGH, WRITE
-
 M32 = 0xFFFFFFFF
 T = 0x001
 
@@ -77,29 +75,13 @@ class LogicMixin:
         self.sr = (self.sr | T) if zero else (self.sr & ~T)
 
     def _op_tas_b(self, op: int) -> None:
-        """TAS.B @Rn -- T = 1 when (Rn) is 0; bit 7 of (Rn) set (PM 6.66; HM 8.4.4)."""
-        address = self.R[(op >> 8) & 15]
-        space = address >> 29
-        if space in (0, 1):
-            # HM 8.4.4: the read is cache-through whatever the area; the write goes
-            # through and updates a hit line. Each is one of its MAs (PM figure 7.76).
-            if self._p_ma_left:
-                self._ma_next()
-            if self.observe is not None:
-                self.observe(address, 8, THROUGH)
-            value = self._bus_read(address, 8, THROUGH)
-            if self._p_ma_left:
-                self._ma_next()
-            if self.observe is not None:
-                self.observe(address, 8, WRITE)
-            if space == 0 and self.cache.enabled:
-                self.cache.write_hit(address, 8, value | 0x80)
-            self._bus_write(address, 8, value | 0x80, THROUGH)
-        else:
-            # HM table 4.6: TAS.B on the purge, address-array, data-array or I/O
-            # spaces is an address error.
-            self._address_error = True
-            value = 1
+        """TAS.B @Rn -- T = 1 when (Rn) is 0; bit 7 of (Rn) set (PM 6.66; HM 8.4.4).
+
+        The read and the write are one bus method, ``_tas8`` (``_core.py``): the bus is
+        not released between them (HM 7.10), so they are one sync point
+        (docs/handler-subset.md).
+        """
+        value = self._tas8(self.R[(op >> 8) & 15])
         self.sr = (self.sr | T) if value == 0 else (self.sr & ~T)
 
 

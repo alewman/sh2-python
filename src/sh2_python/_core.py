@@ -353,6 +353,35 @@ class CoreMixin:
             return
         self._write(address, 32, value & M32)
 
+    def _tas8(self, address: int) -> int:
+        """TAS.B's read and write of the byte at ``address``; returns the byte read.
+
+        One bus method because the bus is not released between the two cycles (HM 7.10:
+        "the bus cannot be released between the read and write cycles of a TAS
+        instruction"). The handler (``_logic.py``) sets T from the value returned.
+        """
+        space = address >> 29
+        if space in (0, 1):
+            # HM 8.4.4: the read is cache-through whatever the area; the write goes
+            # through and updates a hit line. Each is one of its MAs (PM figure 7.76).
+            if self._p_ma_left:
+                self._ma_next()
+            if self.observe is not None:
+                self.observe(address, 8, THROUGH)
+            value = self._bus_read(address, 8, THROUGH)
+            if self._p_ma_left:
+                self._ma_next()
+            if self.observe is not None:
+                self.observe(address, 8, WRITE)
+            if space == 0 and self.cache.enabled:
+                self.cache.write_hit(address, 8, value | 0x80)
+            self._bus_write(address, 8, value | 0x80, THROUGH)
+            return value
+        # HM table 4.6: TAS.B on the purge, address-array, data-array or I/O spaces is
+        # an address error; nothing is accessed and T is cleared (a nonzero result).
+        self._address_error = True
+        return 1
+
     def _read(self, address: int, width: int) -> int:
         if self._p_ma_left:
             self._ma_next()  # this access is the instruction's next MA (pipeline.py)
