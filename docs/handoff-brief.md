@@ -67,8 +67,8 @@ The user's rules that bind this work:
    `/data/emu/z80-python/docs/start-here.md` ("The embedding contract").
 
 Then `python scripts/fetch_references.py` (about 70 MB) and
-`python scripts/build_referees.py` (checks MAME, builds Mednafen in about 6
-minutes). Read HM chapters 2, 4, 5, 7, 8 and PM section 7 yourself; the docs
+`python scripts/build_referees.py` (checks MAME; has emu-tools-gpl2 build Mednafen,
+through `EMU_TOOLS_GPL2`, in about 6 minutes). Read HM chapters 2, 4, 5, 7, 8 and PM section 7 yourself; the docs
 summarise them but the pipeline figures are the specification.
 
 ## Decisions already made

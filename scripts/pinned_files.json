@@ -79,20 +79,5 @@
   "kind": "document",
   "license": "none stated (photograph attached to jgenesis issue #493)",
   "note": "Photograph (Canon EOS 30D, EXIF 2019-05-26) of 32xspd running on a real 32X: cached read 31,840 KB/s, SDRAM read 16,304, ROM read 4,704, ... (validation.md). Hardware-captured, aggregate."
- },
- {
-  "path": "reference/archives/mednafen-1.32.1.tar.xz",
-  "url": "https://mednafen.github.io/releases/files/mednafen-1.32.1.tar.xz",
-  "sha256": "de7eb94ab66212ae7758376524368a8ab208234b33796625ca630547dbc83832",
-  "size": 3571236,
-  "kind": "source-archive",
-  "extract_to": "reference/src/mednafen-1.32.1",
-  "members": [
-   "mednafen/COPYING",
-   "mednafen/src/ss"
-  ],
-  "strip": 1,
-  "license": "GPL-2.0-or-later",
-  "note": "Mednafen 1.32.1 (2024-04-05), the newest release. GPL-2.0: built and run as a closed box only, its source never read (provenance rewrite 2026-11). Only src/ss is unpacked; build_referees.py unpacks the whole tree to build the emulator."
  }
 ]

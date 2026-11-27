@@ -156,5 +156,26 @@ licence). URLs are in docs/validation.md.
 **Kept, with a question for Aubrey:** jgenesis (GPL-3.0), because the harness above builds
 its `sh2-emu` crate (the build copy under `reference/build/jgenesis-sh2/` holds its source),
 and the Mednafen 1.32.1 tarball, from which `scripts/build_referees.py` builds the Saturn
-detector. Neither has a shipped build that would do. Whether both builds move to the GPL tool
-repositories is open.
+detector. Neither has a shipped build that would do. Aubrey's answer (decisions page T3,
+2026-11-25): both move, one tool at a time. Mednafen moved on 2026-11-25 (below); jgenesis is
+still here.
+
+### Mednafen's build moved to emu-tools-gpl2 (2026-11-25)
+
+Decisions page T3: the Saturn Mednafen is now built by emu-tools-gpl2's `tools/mednafen`
+(mednafen-build 0.1.0, GPL-2.0-only: `build.py --machine ss`, the same pinned tarball, SHA-256
+`de7eb94a...`, the same configure options), at `$EMU_TOOLS_GPL2/tools/mednafen/build/ss/bin/mednafen`;
+`scripts/build_referees.py` runs that build as a program and checks for that file. The
+tarball's pin (with its `src/ss` extract) left `scripts/pinned_files.json`. Moved unopened to a
+backup outside the repository (not deleted): `reference/archives/mednafen-1.32.1.tar.xz`,
+`reference/src/mednafen-1.32.1` (the extract Phase 0 read, before the rule) and
+`reference/build/mednafen-1.32.1` (the build tree and its program, sha1 `6b03ca69`). No script
+here runs the program (no result in these documents came from it), so the identity check is of
+the program itself, 2026-11-25: run with no game (SDL's dummy drivers, a fresh
+`MEDNAFEN_HOME`), the old program and the tool's print the same banner and usage ("Emulation
+modules: ss demo cdplay"), exit with the same status (255), and write the same default
+`mednafen.cfg` (12,811 lines; paths aside); their ELF sections are the same sizes, and their
+disassemblies (1,878,074 lines each) are the same once constants and addresses are blanked:
+the 7,488 lines that differ load addresses in read-only data, which moved with the install
+paths compiled in (sh2-python's build ran from its tree; the tool's is installed). OBSERVED;
+not a run of Saturn code, which needs a Saturn BIOS and has not been done here.
